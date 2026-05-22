@@ -5,3 +5,5 @@ server.crt
 *.pem
 .DS_Store
 *.log
+desktop/out/
+desktop/dist/

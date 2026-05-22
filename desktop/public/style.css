@@ -1,0 +1,214 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #1a1a2e;
+  color: #eee;
+  user-select: none;
+  overflow: hidden;
+  height: 100vh;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100vh;
+  padding: 20px;
+  gap: 16px;
+}
+
+/* ─── Header ─────────────────────────────── */
+.header {
+  width: 100%;
+  text-align: center;
+  padding-top: 8px;
+}
+
+.title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #eee;
+  margin-bottom: 6px;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e74c3c;
+  transition: background 0.3s;
+}
+
+.dot.ready { background: #2ecc71; }
+.dot.busy { background: #f39c12; }
+.dot.error { background: #e74c3c; }
+
+.status-text {
+  font-size: 13px;
+  color: #888;
+}
+
+/* ─── Camera ─────────────────────────────── */
+.camera-section {
+  position: relative;
+  width: 240px;
+  height: 160px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #25254a;
+  border: 1px solid #333;
+}
+
+.camera-section.hidden { display: none; }
+
+#cameraPreview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.camera-toggle {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  background: rgba(0,0,0,0.5);
+  border: none;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 16px;
+  cursor: pointer;
+  color: #fff;
+}
+
+.camera-toggle.active { background: rgba(102, 126, 234, 0.6); }
+
+/* ─── Mic Button ─────────────────────────── */
+.button-section {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  justify-content: center;
+}
+
+.mic-button {
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s, background 0.2s, box-shadow 0.2s;
+  box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
+  position: relative;
+  z-index: 2;
+  -webkit-app-region: no-drag;
+}
+
+.mic-button:active {
+  transform: scale(0.95);
+}
+
+.mic-button.recording {
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+  box-shadow: 0 8px 32px rgba(231, 76, 60, 0.4);
+}
+
+.mic-button.processing {
+  background: linear-gradient(135deg, #f39c12, #e67e22);
+  box-shadow: 0 8px 32px rgba(243, 156, 18, 0.3);
+  pointer-events: none;
+}
+
+.mic-icon { font-size: 48px; }
+
+.pulse-ring {
+  position: absolute;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  border: 3px solid rgba(102, 126, 234, 0.4);
+  z-index: 1;
+  animation: none;
+}
+
+.pulse-ring.active {
+  animation: pulse 1.2s ease-out infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
+
+.hint {
+  font-size: 13px;
+  color: #555;
+  margin-top: 16px;
+}
+
+/* ─── Log ────────────────────────────────── */
+.log-box {
+  background: rgba(255,255,255,0.05);
+  padding: 10px 16px;
+  border-radius: 10px;
+  max-width: 320px;
+  width: 100%;
+}
+
+.log-text {
+  font-size: 12px;
+  color: #888;
+  text-align: center;
+  word-break: break-all;
+}
+
+/* ─── Conversation ────────────────────────── */
+.conversation {
+  width: 100%;
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+  mask-image: linear-gradient(to bottom, transparent, black 16px, black 80%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 16px, black 80%, transparent);
+}
+
+.conversation::-webkit-scrollbar { display: none; }
+
+.msg {
+  padding: 8px 14px;
+  border-radius: 12px;
+  max-width: 85%;
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.msg-user {
+  background: #667eea;
+  color: #fff;
+  align-self: flex-end;
+  border-bottom-right-radius: 4px;
+}
+
+.msg-assistant {
+  background: #25254a;
+  color: #ccc;
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+}

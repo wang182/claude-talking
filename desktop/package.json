@@ -1,0 +1,12 @@
+{
+  "name": "xiaozhi-desktop",
+  "version": "1.0.0",
+  "description": "Desktop voice assistant for Claude Code - talk directly to Claude using mic, speaker, and camera",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "electron": "^34.0.0"
+  }
+}

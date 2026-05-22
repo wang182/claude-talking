@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "desktop": "cd desktop && npx electron .",
     "setup": "bash setup.sh"
   },
   "dependencies": {
