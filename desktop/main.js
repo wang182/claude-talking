@@ -3,6 +3,20 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
+// When launched from Finder, PATH may not include user-installed binaries.
+// Extend PATH so child processes can find claude, whisper-cli etc.
+if (app.isPackaged) {
+  const extraPaths = [
+    path.join(os.homedir(), '.local', 'bin'),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    '/opt/homebrew/sbin',
+  ];
+  const existing = process.env.PATH || '';
+  const added = extraPaths.filter(p => !existing.includes(p)).join(':');
+  if (added) process.env.PATH = `${added}:${existing}`;
+}
+
 // Resolve module paths for dev (__dirname/..) vs packaged (process.resourcesPath/lib)
 function libPath(mod) {
   const dir = app.isPackaged
@@ -23,7 +37,7 @@ if (app.isPackaged) {
 // Validate critical modules exist before starting
 const checkPaths = [
   libPath('stt'), libPath('brain'), libPath('tts'), libPath('audio'),
-  '/Users/wang/.whisper-models/ggml-base.bin',
+  path.join(os.homedir(), '.whisper-models', 'ggml-base.bin'),
 ];
 for (const p of checkPaths) {
   if (p.endsWith('.bin')) {

@@ -1,4 +1,5 @@
 const { spawn } = require('child_process');
+const path = require('path');
 
 // ─── Find Claude Code binary ──────────────────────────────────
 function findClaude() {
@@ -35,8 +36,8 @@ function buildArgs() {
     '--print',
     '--dangerously-skip-permissions',
     '--effort', 'high',
-    '--add-dir', '/Users/wang',
-    '--add-dir', '/Users/wang/Desktop',
+    '--add-dir', process.env.HOME || '/Users/wang',
+    '--add-dir', path.join(process.env.HOME || '/Users/wang', 'Desktop'),
   ];
   if (!isFirstMessage) {
     args.push('--continue');
