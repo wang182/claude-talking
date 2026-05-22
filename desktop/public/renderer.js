@@ -5,6 +5,8 @@ let scriptNode = null;
 let pcmChunks = [];
 let isRecording = false;
 let isProcessing = false;
+let pendingStart = false; // track async setup in progress
+let continuousMode = false;
 
 const TARGET_SAMPLE_RATE = 16000;
 
@@ -70,10 +72,11 @@ function downsample(samples, fromRate) {
   return result;
 }
 
-// ─── Start / Stop Recording ─────────────────────────────────
+// ─── Start / Stop Recording (toggle mode) ───────────────────
 
 async function startRecording() {
-  if (isRecording || isProcessing) return;
+  if (isRecording || isProcessing || pendingStart) return;
+  pendingStart = true;
 
   try {
     const ctx = await getAudioContext();
@@ -86,25 +89,32 @@ async function startRecording() {
       },
     });
 
+    // Check if user cancelled while we were setting up
+    if (!pendingStart) {
+      micStream.getTracks().forEach(t => t.stop());
+      micStream = null;
+      return;
+    }
+
     const source = ctx.createMediaStreamSource(micStream);
-    const inputSampleRate = ctx.sampleRate;
 
     pcmChunks = [];
-
     scriptNode = ctx.createScriptProcessor(4096, 1, 1);
     scriptNode.onaudioprocess = (e) => {
       if (!isRecording) return;
-      const input = e.inputBuffer.getChannelData(0);
-      pcmChunks.push(new Float32Array(input));
+      pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
     };
 
     source.connect(scriptNode);
     scriptNode.connect(ctx.destination);
 
     isRecording = true;
+    pendingStart = false;
     setStatus('recording', '🎙️ 录音中...');
     updateMicButton(true);
+    document.getElementById('hintText').textContent = '点击停止';
   } catch (err) {
+    pendingStart = false;
     setStatus('error', '麦克风权限被拒绝');
     console.error('Mic error:', err);
   }
@@ -114,18 +124,21 @@ function stopRecording() {
   if (!isRecording) return;
   isRecording = false;
 
+  // Cancel if no audio captured
+  if (pcmChunks.length === 0) {
+    cleanupAudio();
+    setStatus('ready', '就绪');
+    updateMicButton(false);
+    document.getElementById('hintText').textContent = '点击说话';
+    return;
+  }
+
   // Cleanup audio graph
-  if (scriptNode) {
-    scriptNode.disconnect();
-    scriptNode = null;
-  }
-  if (micStream) {
-    micStream.getTracks().forEach(t => t.stop());
-    micStream = null;
-  }
+  cleanupAudio();
 
   setStatus('busy', '⏳ 处理中...');
   updateMicButton(false, true);
+  document.getElementById('hintText').textContent = '处理中...';
 
   // Concatenate all PCM chunks
   const totalLen = pcmChunks.reduce((sum, c) => sum + c.length, 0);
@@ -136,7 +149,29 @@ function stopRecording() {
     offset += chunk.length;
   }
 
-  setTimeout(() => processAudioData(allSamples), 50);
+  processAudioData(allSamples);
+}
+
+function cancelRecording() {
+  continuousMode = false;
+  if (pendingStart) pendingStart = false;
+  if (isRecording) isRecording = false;
+  cleanupAudio();
+  setStatus('ready', '就绪');
+  updateMicButton(false);
+  document.getElementById('hintText').textContent = '点击说话';
+  showLog('');
+}
+
+function cleanupAudio() {
+  if (scriptNode) {
+    try { scriptNode.disconnect(); } catch {}
+    scriptNode = null;
+  }
+  if (micStream) {
+    micStream.getTracks().forEach(t => t.stop());
+    micStream = null;
+  }
 }
 
 // ─── Process Audio Data ────────────────────────────────────
@@ -172,11 +207,26 @@ async function processAudioData(rawSamples) {
     await playWavBase64(result.wavBase64);
 
     addMessage('assistant', result.reply);
-    setStatus('ready', '就绪');
-    showLog('');
+
+    if (continuousMode) {
+      // Auto-continue: start next recording after short delay
+      setStatus('ready', '就绪');
+      showLog('');
+      document.getElementById('hintText').textContent = '连续对话中，按 Esc 退出';
+      setTimeout(() => {
+        if (continuousMode && !isRecording && !isProcessing) {
+          startRecording();
+        }
+      }, 600);
+    } else {
+      setStatus('ready', '就绪');
+      showLog('');
+      document.getElementById('hintText').textContent = '点击说话 / 空格键连续对话';
+    }
   } catch (err) {
     setStatus('error', err.message);
     showLog(err.message);
+    document.getElementById('hintText').textContent = '点击说话';
   }
 
   isProcessing = false;
@@ -281,25 +331,47 @@ function addMessage(role, text) {
   container.scrollTop = container.scrollHeight;
 }
 
-// ─── Event Listeners ───────────────────────────────────────
+// ─── Event Listeners (toggle mode) ──────────────────────────
 
 const micButton = document.getElementById('micButton');
 const cameraToggle = document.getElementById('cameraToggle');
 
-micButton.addEventListener('mousedown', startRecording);
-micButton.addEventListener('mouseup', stopRecording);
-micButton.addEventListener('mouseleave', () => {
-  if (isRecording) stopRecording();
+function toggleMic() {
+  if (isProcessing) return;
+  if (isRecording || pendingStart) {
+    stopRecording();
+  } else {
+    continuousMode = false;
+    document.getElementById('hintText').textContent = '点击停止';
+    startRecording();
+  }
+}
+
+function startContinuousMode() {
+  if (isRecording || isProcessing || pendingStart) return;
+  continuousMode = true;
+  document.getElementById('hintText').textContent = '连续对话中，按 Esc 退出';
+  startRecording();
+}
+
+function exitContinuousMode() {
+  continuousMode = false;
+  cancelRecording();
+  document.getElementById('hintText').textContent = '点击说话';
+}
+
+micButton.addEventListener('click', toggleMic);
+
+// Right-click to cancel
+micButton.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  exitContinuousMode();
 });
 
 // Touch support
 micButton.addEventListener('touchstart', (e) => {
   e.preventDefault();
-  startRecording();
-});
-micButton.addEventListener('touchend', (e) => {
-  e.preventDefault();
-  stopRecording();
+  startContinuousMode();
 });
 
 cameraToggle.addEventListener('click', toggleCamera);
@@ -321,18 +393,23 @@ cameraToggle.addEventListener('click', toggleCamera);
     }
   } catch {}
 
-  // Keyboard shortcut: space to talk
+  // Keyboard shortcuts
   document.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-    if (e.code === 'Space' && !e.repeat && !isRecording && !isProcessing) {
+    if (e.code === 'Escape') {
       e.preventDefault();
-      startRecording();
+      exitContinuousMode();
+      return;
     }
-  });
-  document.addEventListener('keyup', (e) => {
-    if (e.code === 'Space' && isRecording) {
+    if (e.code === 'Space' && !e.repeat) {
       e.preventDefault();
-      stopRecording();
+      if (isRecording || pendingStart) {
+        stopRecording(); // single mode: stop
+      } else if (continuousMode) {
+        exitContinuousMode();
+      } else {
+        startContinuousMode(); // idle: start continuous conversation
+      }
     }
   });
 })();
