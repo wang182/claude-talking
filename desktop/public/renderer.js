@@ -239,7 +239,6 @@ async function processAudioData(rawSamples) {
 
     // Play TTS in background
     if (result.wavBase64) {
-      setStatus('busy', '🔊 播放中...');
       await playAudioBase64(result.wavBase64);
       if (continuousMode) {
         setTimeout(() => {
@@ -298,11 +297,19 @@ function cancelPlayback() {
 
 // ─── UI ─────────────────────────────────────────────────────
 
+const DOT_COLORS = { ready: '#2ecc71', busy: '#f39c12', error: '#e74c3c' };
+let modelName = '';
+
 function setStatus(state, text) {
   const dot = document.getElementById('statusDot');
   const statusText = document.getElementById('statusText');
-  dot.className = 'dot ' + state;
+  dot.className = 'dot';
+  dot.style.background = DOT_COLORS[state] || '#e74c3c';
   statusText.textContent = text;
+}
+
+function setModelLabel(text) {
+  document.getElementById('modelLabel').textContent = text;
 }
 
 function updateMicButton(recording, processing) {
@@ -408,6 +415,7 @@ async function sendTextMessage() {
 
   cancelPlayback(); // stop ongoing TTS
   input.value = '';
+  input.style.height = '36px';
   isProcessing = true;
   addMessage('user', text);
   showThinking();
@@ -430,9 +438,7 @@ async function sendTextMessage() {
 
     // Play TTS in background
     if (result.wavBase64) {
-      setStatus('busy', '🔊 播放中...');
       await playAudioBase64(result.wavBase64);
-      // Status update is proactive; the inner state is already ready
     }
 
     setStatus('ready', '就绪');
@@ -490,12 +496,20 @@ micButton.addEventListener('touchstart', (e) => {
 const textInput = document.getElementById('textInput');
 const sendButton = document.getElementById('sendButton');
 
+// Auto-resize textarea
+function autoResize() {
+  textInput.style.height = '36px';
+  textInput.style.height = Math.min(textInput.scrollHeight, 90) + 'px';
+}
+
 textInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
     e.preventDefault();
     sendTextMessage();
   }
 });
+
+textInput.addEventListener('input', autoResize);
 
 sendButton.addEventListener('click', sendTextMessage);
 
@@ -512,14 +526,20 @@ sendButton.addEventListener('click', sendTextMessage);
   setStatus('busy', 'Claude 启动中...');
 
   // Listen for warmup complete
-  window.api.onWarmupReady(() => {
-    // Only transition if still showing the warmup message
+  window.api.onWarmupReady(async () => {
     if (document.getElementById('statusText').textContent === 'Claude 启动中...') {
-      setStatus('ready', '就绪');
+      try {
+        const status = await window.api.checkStatus();
+        modelName = status.model ? `${status.model} (effort: high) |` : '';
+        setModelLabel(modelName);
+        setStatus('ready', '就绪');
+      } catch {
+        setStatus('ready', '就绪');
+      }
     }
   });
 
-  // Pre-check status
+  // Pre-check status and show model info
   try {
     const status = await window.api.checkStatus();
     if (!status.stt) {

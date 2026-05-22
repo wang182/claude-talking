@@ -55,6 +55,12 @@ body {
   color: #888;
 }
 
+.model-label {
+  font-size: 12px;
+  color: #888;
+  margin-right: 6px;
+}
+
 /* ─── Conversation ────────────────────────── */
 .conversation {
   flex: 1;
@@ -263,16 +269,25 @@ body {
 
 .text-input {
   flex: 1;
-  height: 36px;
-  padding: 0 12px;
+  min-height: 36px;
+  max-height: 90px;
+  padding: 8px 12px;
   border-radius: 18px;
   border: 1px solid rgba(255,255,255,0.12);
   background: rgba(255,255,255,0.08);
   color: #eee;
   font-size: 14px;
+  font-family: inherit;
   outline: none;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.4;
+  word-wrap: break-word;
+  white-space: pre-wrap;
   transition: border-color 0.2s;
+  scrollbar-width: none;
 }
+.text-input::-webkit-scrollbar { display: none; }
 
 .text-input::placeholder { color: #666; }
 

@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 // Validate critical modules exist before starting
 const checkPaths = [
@@ -138,7 +139,18 @@ ipcMain.handle('process-audio-with-image', async (_event, wavArrayBuffer, imageB
 ipcMain.handle('check-status', async () => {
   loadModules();
   const sttAvailable = stt.isAvailable ? stt.isAvailable() : true;
-  return { stt: sttAvailable };
+
+  // Read model from Claude Code settings
+  let model = '未知';
+  try {
+    const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      model = settings.env?.ANTHROPIC_MODEL || model;
+    }
+  } catch {}
+
+  return { stt: sttAvailable, model };
 });
 
 // ─── Text input processing ────────────────────────────────────

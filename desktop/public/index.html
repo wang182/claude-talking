@@ -14,6 +14,7 @@
     <div class="header">
       <h1 class="title">Claude桌面助手</h1>
       <div class="status-row">
+        <span class="model-label" id="modelLabel"></span>
         <span class="dot" id="statusDot"></span>
         <span class="status-text" id="statusText">就绪</span>
       </div>
@@ -41,7 +42,7 @@
             </svg>
           </button>
         </div>
-        <input type="text" class="text-input" id="textInput" placeholder="输入消息...">
+        <textarea class="text-input" id="textInput" placeholder="输入消息..." rows="1"></textarea>
         <button class="send-button" id="sendButton">发送</button>
       </div>
       <p class="hint" id="hintText">点击说话 / 空格键连续对话</p>
