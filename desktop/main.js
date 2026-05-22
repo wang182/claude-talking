@@ -36,6 +36,9 @@ function createWindow() {
 
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => app.quit());
+app.on('before-quit', () => {
+  try { require('../brain').reset(); } catch {}
+});
 
 // ─── Load core modules lazily (after app starts) ─────────────
 let stt, brain, tts, audio;

@@ -1,6 +1,6 @@
-const { spawn, execFile } = require('child_process');
+const { spawn } = require('child_process');
 
-// Find Claude Code binary
+// ─── Find Claude Code binary ──────────────────────────────────
 function findClaude() {
   const candidates = ['claude', '~/.local/bin/claude'];
   for (const cmd of candidates) {
@@ -10,16 +10,16 @@ function findClaude() {
       if (which) return which;
     } catch {}
   }
-  return 'claude'; // fallback
+  return 'claude';
 }
 
 const CLAUDE_PATH = findClaude();
 
-// Conversation history
-let history = [];
-const MAX_HISTORY = 20; // keep last 20 turns
+// ─── Persistent Claude Code session ──────────────────────────
+let proc = null;
+let ready = false;
 
-// System prompt for voice mode
+// System prompt — sent once at session start
 const SYSTEM_PROMPT = `你现在通过语音与用户对话，全程使用简体中文。
 
 规则：
@@ -30,114 +30,134 @@ const SYSTEM_PROMPT = `你现在通过语音与用户对话，全程使用简体
 - 工具操作完后，用口语告诉用户结果即可`;
 
 /**
- * Process user input through Claude Code
- * @param {string} text - user's speech text
- * @returns {Promise<string>} Claude's text response (for TTS)
+ * Start a persistent Claude Code session (interactive mode)
  */
-async function think(text) {
-  // Build prompt with history
-  const historyBlock = history.map(h =>
-    `${h.role === 'user' ? '用户' : '助手'}：${h.content}`
-  ).join('\n');
+function startSession() {
+  return new Promise((resolve) => {
+    proc = spawn(CLAUDE_PATH, [
+      '--add-dir', '/Users/wang',
+      '--add-dir', '/Users/wang/Desktop',
+      '--dangerously-skip-permissions',
+      '--effort', 'low',
+    ], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, CLAUDE_CODE_OUTPUT_MODE: 'plain' },
+    });
 
-  const prompt = `${SYSTEM_PROMPT}
+    proc.stderr.on('data', () => {});
+    proc.on('exit', () => { proc = null; ready = false; });
 
-${historyBlock ? '对话历史：\n' + historyBlock + '\n' : ''}
-用户说：${text}
-
-请用口语回复：`;
-
-  try {
-    const response = await runClaude(prompt);
-    // Clean up response
-    const cleaned = cleanResponse(response);
-
-    // Update history
-    history.push({ role: 'user', content: text });
-    history.push({ role: 'assistant', content: cleaned });
-    if (history.length > MAX_HISTORY * 2) {
-      history = history.slice(-MAX_HISTORY * 2);
-    }
-
-    return cleaned;
-  } catch (err) {
-    console.error('[brain] claude error:', err.message);
-    return `抱歉，我处理出错：${err.message}`;
-  }
+    // Stage 1: wait for first `> ` prompt → Claude is ready
+    waitForPrompt(() => {
+      // Stage 2: send system prompt, wait for acknowledgment
+      proc.stdin.write(SYSTEM_PROMPT + '\n');
+      waitForPrompt(() => {
+        ready = true;
+        resolve();
+      });
+    });
+  });
 }
 
 /**
- * Run claude --print with the given prompt
+ * Wait for the next `> ` shell prompt at end of stdout
  */
-function runClaude(prompt) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(CLAUDE_PATH, ['--print', '--add-dir', '/Users/wang', '--add-dir', '/Users/wang/Desktop', '--dangerously-skip-permissions'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 120000,
-      env: { ...process.env, CLAUDE_CODE_OUTPUT_MODE: 'plain' }
-    });
+function waitForPrompt(callback) {
+  let acc = '';
+  const handler = (data) => {
+    acc += data.toString();
+    if (isAtPrompt(acc)) {
+      proc.stdout.removeListener('data', handler);
+      callback();
+    }
+  };
+  proc.stdout.on('data', handler);
+}
 
-    let output = '';
-    let error = '';
+/**
+ * Check if text ends at the shell prompt (last line is "> ")
+ */
+function isAtPrompt(text) {
+  const idx = text.lastIndexOf('\n');
+  if (idx === -1) return false;
+  return /^>\s*$/.test(text.slice(idx + 1));
+}
 
-    child.stdout.on('data', (data) => {
-      output += data.toString();
-    });
+/**
+ * Ensure the persistent Claude session is running
+ */
+function ensureSession() {
+  if (proc && ready) return Promise.resolve();
+  return startSession();
+}
 
-    child.stderr.on('data', (data) => {
-      error += data.toString();
-    });
+/**
+ * Process user input through the persistent Claude Code session.
+ * The process stays alive across calls, preserving conversation memory.
+ * @param {string} text - user's speech text
+ * @returns {Promise<string>} Claude's response (for TTS)
+ */
+async function think(text) {
+  await ensureSession();
+  ready = false;
 
-    child.on('close', (code) => {
-      if (code !== 0 && !output) {
-        reject(new Error(`claude exited with code ${code}: ${error}`));
-      } else {
-        resolve(output || error);
+  let response = '';
+
+  return new Promise((resolve) => {
+    const handler = (data) => {
+      response += data.toString();
+      if (isAtPrompt(response)) {
+        proc.stdout.removeListener('data', handler);
+        ready = true;
+        const result = response.replace(/\n>\s*$/, '').trim();
+        resolve(cleanResponse(result));
       }
-    });
+    };
 
-    child.on('error', (err) => {
-      reject(new Error(`Failed to start claude: ${err.message}`));
-    });
+    proc.stdout.on('data', handler);
+    proc.stdin.write(text + '\n');
 
-    // Send prompt
-    child.stdin.write(prompt);
-    child.stdin.end();
+    // Safety timeout — should rarely fire since process stays alive
+    setTimeout(() => {
+      proc.stdout.removeListener('data', handler);
+      ready = true;
+      resolve(cleanResponse(response.replace(/\n>\s*$/, '').trim()) || '(timeout)');
+    }, 120000);
   });
 }
 
 /**
  * Clean Claude's response for TTS
- * Remove code blocks, markdown, tool details
  */
 function cleanResponse(text) {
   return text
-    // Remove code blocks
-    .replace(/```[\s\S]*?```/g, '')
-    .replace(/`[^`]+`/g, '')
-    // Remove lines that look like tool calls
-    .replace(/^[─┌└│├┤┬┴┼┼┐┘└┴┬├─┼│]+.*$/gm, '')
-    .replace(/^[>\s]*─+.*$/gm, '')
-    .replace(/^\d+[:.].*$/gm, '')
-    // Remove file paths
+    .replace(/^> .*(\n|$)/gm, '')         // input echo lines
+    .replace(/```[\s\S]*?```/g, '')       // code blocks
+    .replace(/`[^`]+`/g, '')              // inline code
+    .replace(/^[─┌└│├┤┬┴┼┐┘]+.*$/gm, '') // box-drawing chars
+    .replace(/^[>\s]*─+.*$/gm, '')        // lines starting with >
+    .replace(/^\d+[:.].*$/gm, '')         // numbered lines
     .replace(/[\w./-]+\/\w+\.\w+/g, '某个文件')
-    // Clean up extra whitespace
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
 /**
- * Reset conversation history
+ * Reset — kill and restart the Claude session
  */
 function reset() {
-  history = [];
+  if (proc) {
+    proc.kill();
+    proc = null;
+  }
+  ready = false;
 }
 
 /**
- * Get current history length
+ * Get current session state
  */
 function historySize() {
-  return history.length;
+  return ready ? 1 : 0;
 }
 
 module.exports = { think, reset, historySize };
