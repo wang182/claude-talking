@@ -4,7 +4,7 @@
   "otaPort": 8081,
   "stt": {
     "engine": "whisper",
-    "model": "/Users/wang/.whisper-models/ggml-base.bin"
+    "model": "/Users/wang/.whisper-models/ggml-small.bin"
   },
   "tts": {
     "voice": "zh-CN-XiaoxiaoNeural",
