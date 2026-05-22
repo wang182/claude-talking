@@ -499,9 +499,10 @@ async function sendTextMessage() {
 
     hideThinking();
     if (!result.ok) {
-      setStatus('error', `错误: ${result.error}`);
-      addMessage('assistant', `(错误: ${result.error})`);
+      setStatus('ready', '就绪');
+      addMessage('assistant', `(${result.error})`);
       isProcessing = false;
+      input.focus();
       return;
     }
 
