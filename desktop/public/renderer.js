@@ -10,6 +10,13 @@ let continuousMode = false;
 
 const TARGET_SAMPLE_RATE = 16000;
 
+// VAD (Voice Activity Detection) for continuous mode
+const SILENCE_THRESHOLD = 0.008; // RMS below this = silence
+const SILENCE_TIMEOUT_MS = 1200; // auto-stop after this much silence
+const MIN_CHUNKS_FOR_VAD = 6;    // wait for ~500ms before VAD kicks in
+let lastSoundTime = 0;
+let chunkCount = 0;
+
 async function getAudioContext() {
   if (!audioCtx) audioCtx = new AudioContext();
   return audioCtx;
@@ -99,10 +106,26 @@ async function startRecording() {
     const source = ctx.createMediaStreamSource(micStream);
 
     pcmChunks = [];
+    chunkCount = 0;
+    lastSoundTime = Date.now();
     scriptNode = ctx.createScriptProcessor(4096, 1, 1);
     scriptNode.onaudioprocess = (e) => {
       if (!isRecording) return;
-      pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      const data = new Float32Array(e.inputBuffer.getChannelData(0));
+      pcmChunks.push(data);
+      chunkCount++;
+
+      // VAD: auto-stop on silence in continuous mode
+      if (continuousMode && chunkCount > MIN_CHUNKS_FOR_VAD) {
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+        const rms = Math.sqrt(sum / data.length);
+        if (rms > SILENCE_THRESHOLD) {
+          lastSoundTime = Date.now();
+        } else if (Date.now() - lastSoundTime > SILENCE_TIMEOUT_MS) {
+          stopRecording();
+        }
+      }
     };
 
     source.connect(scriptNode);
@@ -204,7 +227,7 @@ async function processAudioData(rawSamples) {
     setStatus('busy', '🔊 播放中...');
 
     // Play response
-    await playWavBase64(result.wavBase64);
+    await playAudioBase64(result.wavBase64);
 
     addMessage('assistant', result.reply);
 
@@ -232,70 +255,24 @@ async function processAudioData(rawSamples) {
   isProcessing = false;
 }
 
-// ─── Audio Playback ────────────────────────────────────────
+// ─── Audio Playback (MP3 via blob URL) ─────────────────────
 
-async function playWavBase64(base64) {
-  return new Promise(async (resolve) => {
+async function playAudioBase64(base64) {
+  return new Promise((resolve) => {
     try {
       const binaryStr = atob(base64);
       const bytes = new Uint8Array(binaryStr.length);
       for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-
-      const ctx = await getAudioContext();
-      ctx.decodeAudioData(bytes.buffer, (buffer) => {
-        const source = ctx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(ctx.destination);
-        source.onended = () => resolve();
-        source.start();
-      }, () => resolve());
+      const blob = new Blob([bytes], { type: 'audio/mpeg' });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
+      audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+      audio.play().catch(() => resolve());
     } catch {
-      resolve(); // Don't hang on playback error
+      resolve();
     }
   });
-}
-
-// ─── Camera ─────────────────────────────────────────────────
-
-let cameraStream = null;
-let cameraEnabled = false;
-
-async function toggleCamera() {
-  const preview = document.getElementById('cameraPreview');
-  const section = document.getElementById('cameraSection');
-
-  if (cameraEnabled) {
-    if (cameraStream) cameraStream.getTracks().forEach(t => t.stop());
-    cameraStream = null;
-    cameraEnabled = false;
-    preview.srcObject = null;
-    section.classList.add('hidden');
-    document.getElementById('cameraToggle').classList.remove('active');
-    return;
-  }
-
-  try {
-    cameraStream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 640 }, height: { ideal: 480 } },
-    });
-    preview.srcObject = cameraStream;
-    cameraEnabled = true;
-    section.classList.remove('hidden');
-    document.getElementById('cameraToggle').classList.add('active');
-  } catch {
-    setStatus('error', '摄像头不可用');
-  }
-}
-
-function captureFrame() {
-  if (!cameraEnabled || !cameraStream) return null;
-  const video = document.getElementById('cameraPreview');
-  const canvas = document.getElementById('cameraCanvas');
-  canvas.width = video.videoWidth || 640;
-  canvas.height = video.videoHeight || 480;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(video, 0, 0);
-  return canvas.toDataURL('image/jpeg', 0.7).split(',')[1]; // base64
 }
 
 // ─── UI ─────────────────────────────────────────────────────
@@ -334,7 +311,6 @@ function addMessage(role, text) {
 // ─── Event Listeners (toggle mode) ──────────────────────────
 
 const micButton = document.getElementById('micButton');
-const cameraToggle = document.getElementById('cameraToggle');
 
 function toggleMic() {
   if (isProcessing) return;
@@ -373,8 +349,6 @@ micButton.addEventListener('touchstart', (e) => {
   e.preventDefault();
   startContinuousMode();
 });
-
-cameraToggle.addEventListener('click', toggleCamera);
 
 // ─── Init ───────────────────────────────────────────────────
 

@@ -15,35 +15,23 @@ try {
  * @param {object} options
  * @param {string} options.voice - Edge TTS voice name (default: zh-CN-XiaoxiaoNeural)
  * @param {string} options.rate - speech rate like '+10%' (default: from config)
- * @returns {Promise<Buffer>} WAV audio buffer (16-bit, 24000 Hz)
+ * @returns {Promise<Buffer>} MP3 audio buffer
  */
 async function synthesize(text, options = {}) {
   const voice = options.voice || ttsConfig.voice;
   const rate = options.rate || ttsConfig.rate || 'default';
 
   const tmpMp3 = path.join(os.tmpdir(), `tts_${Date.now()}.mp3`);
-  const tmpWav = path.join(os.tmpdir(), `tts_${Date.now()}.wav`);
 
   try {
     const tts = new EdgeTTS({ voice, rate });
     await tts.ttsPromise(text, tmpMp3);
-
-    await new Promise((resolve, reject) => {
-      execFile('afconvert', [
-        '-f', 'WAVE', '-d', 'LEI16', tmpMp3, tmpWav
-      ], { timeout: 15000 }, (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-
-    return fs.readFileSync(tmpWav);
+    return fs.readFileSync(tmpMp3);
   } catch (err) {
     console.error('[tts] error:', err.message);
     throw err;
   } finally {
     try { fs.unlinkSync(tmpMp3); } catch {}
-    try { fs.unlinkSync(tmpWav); } catch {}
   }
 }
 

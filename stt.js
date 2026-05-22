@@ -51,7 +51,7 @@ async function transcribe(pcm16) {
   fs.writeFileSync(tmpFile, wav);
 
   try {
-    const args = ['-f', tmpFile, '-l', 'zh', '-otxt', '--no-prints'];
+    const args = ['-f', tmpFile, '-l', 'zh', '-otxt', '--no-prints', '-t', '4'];
     if (modelPath) {
       args.push('-m', modelPath);
     }
