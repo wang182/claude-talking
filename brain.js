@@ -15,11 +15,11 @@ function findClaude() {
 
 const CLAUDE_PATH = findClaude();
 
-// ─── Persistent Claude Code session ──────────────────────────
+// ─── Persistent Claude Code session (via PTY) ─────────────────
 let proc = null;
 let ready = false;
 
-// System prompt — sent once at session start
+// System prompt
 const SYSTEM_PROMPT = `你现在通过语音与用户对话，全程使用简体中文。
 
 规则：
@@ -30,26 +30,31 @@ const SYSTEM_PROMPT = `你现在通过语音与用户对话，全程使用简体
 - 工具操作完后，用口语告诉用户结果即可`;
 
 /**
- * Start a persistent Claude Code session (interactive mode)
+ * Spawn claude via `script` (PTY) so it stays in interactive mode
+ * even though we're piping stdin/stdout.
  */
 function startSession() {
   return new Promise((resolve) => {
-    proc = spawn(CLAUDE_PATH, [
+    const args = [
+      '-q', '/dev/null',               // script flags: quiet, discard timing
+      CLAUDE_PATH,
       '--add-dir', '/Users/wang',
       '--add-dir', '/Users/wang/Desktop',
       '--dangerously-skip-permissions',
-      '--effort', 'low',
-    ], {
+      '--effort', 'high',
+    ];
+
+    proc = spawn('script', args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, CLAUDE_CODE_OUTPUT_MODE: 'plain' },
     });
 
-    proc.stderr.on('data', () => {});
+    // Log stderr for debugging
+    proc.stderr.on('data', (d) => process.stderr.write(`[brain:err] ${d}`));
     proc.on('exit', () => { proc = null; ready = false; });
 
-    // Stage 1: wait for first `> ` prompt → Claude is ready
+    // Wait for first shell prompt, then send system prompt
     waitForPrompt(() => {
-      // Stage 2: send system prompt, wait for acknowledgment
       proc.stdin.write(SYSTEM_PROMPT + '\n');
       waitForPrompt(() => {
         ready = true;
@@ -60,12 +65,12 @@ function startSession() {
 }
 
 /**
- * Wait for the next `> ` shell prompt at end of stdout
+ * Wait for the next shell prompt `> ` at end of PTY output
  */
 function waitForPrompt(callback) {
   let acc = '';
   const handler = (data) => {
-    acc += data.toString();
+    acc += stripAnsi(data.toString());
     if (isAtPrompt(acc)) {
       proc.stdout.removeListener('data', handler);
       callback();
@@ -75,7 +80,7 @@ function waitForPrompt(callback) {
 }
 
 /**
- * Check if text ends at the shell prompt (last line is "> ")
+ * Check if text ends at `> ` prompt
  */
 function isAtPrompt(text) {
   const idx = text.lastIndexOf('\n');
@@ -84,7 +89,16 @@ function isAtPrompt(text) {
 }
 
 /**
- * Ensure the persistent Claude session is running
+ * Strip ANSI escape codes from terminal output
+ */
+function stripAnsi(text) {
+  return text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '')
+             .replace(/\x1B\][0-9;]*\x1B\\/g, '')
+             .replace(/\r/g, '');
+}
+
+/**
+ * Ensure session is running
  */
 function ensureSession() {
   if (proc && ready) return Promise.resolve();
@@ -93,9 +107,8 @@ function ensureSession() {
 
 /**
  * Process user input through the persistent Claude Code session.
- * The process stays alive across calls, preserving conversation memory.
  * @param {string} text - user's speech text
- * @returns {Promise<string>} Claude's response (for TTS)
+ * @returns {Promise<string>} Claude's spoken response
  */
 async function think(text) {
   await ensureSession();
@@ -105,7 +118,7 @@ async function think(text) {
 
   return new Promise((resolve) => {
     const handler = (data) => {
-      response += data.toString();
+      response += stripAnsi(data.toString());
       if (isAtPrompt(response)) {
         proc.stdout.removeListener('data', handler);
         ready = true;
@@ -117,11 +130,11 @@ async function think(text) {
     proc.stdout.on('data', handler);
     proc.stdin.write(text + '\n');
 
-    // Safety timeout — should rarely fire since process stays alive
     setTimeout(() => {
       proc.stdout.removeListener('data', handler);
       ready = true;
-      resolve(cleanResponse(response.replace(/\n>\s*$/, '').trim()) || '(timeout)');
+      const result = response.replace(/\n>\s*$/, '').trim();
+      resolve(cleanResponse(result) || '(timeout)');
     }, 120000);
   });
 }
@@ -131,11 +144,11 @@ async function think(text) {
  */
 function cleanResponse(text) {
   return text
-    .replace(/^> .*(\n|$)/gm, '')         // input echo lines
+    .replace(/^> .*(\n|$)/gm, '')         // input echo
     .replace(/```[\s\S]*?```/g, '')       // code blocks
     .replace(/`[^`]+`/g, '')              // inline code
     .replace(/^[─┌└│├┤┬┴┼┐┘]+.*$/gm, '') // box-drawing chars
-    .replace(/^[>\s]*─+.*$/gm, '')        // lines starting with >
+    .replace(/^[>\s]*─+.*$/gm, '')        // lines with >
     .replace(/^\d+[:.].*$/gm, '')         // numbered lines
     .replace(/[\w./-]+\/\w+\.\w+/g, '某个文件')
     .replace(/\n{3,}/g, '\n\n')
@@ -143,19 +156,16 @@ function cleanResponse(text) {
 }
 
 /**
- * Reset — kill and restart the Claude session
+ * Reset — kill session
  */
 function reset() {
   if (proc) {
-    proc.kill();
+    try { proc.kill('SIGTERM'); } catch {}
     proc = null;
   }
   ready = false;
 }
 
-/**
- * Get current session state
- */
 function historySize() {
   return ready ? 1 : 0;
 }
