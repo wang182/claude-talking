@@ -1,0 +1,15 @@
+{
+  "name": "xiaozhi-bridge",
+  "version": "1.0.0",
+  "description": "Bridge server for xiaozhi-esp32 + Claude Code voice interaction",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "setup": "bash setup.sh"
+  },
+  "dependencies": {
+    "@discordjs/opus": "^0.10.0",
+    "node-edge-tts": "^1.2.10",
+    "ws": "^8.20.1"
+  }
+}

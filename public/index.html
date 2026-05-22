@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>语音助手</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #1a1a2e;
+    color: #eee;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100dvh;
+    padding: 20px;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  h1 { font-size: 22px; font-weight: 500; margin-bottom: 8px; }
+  .subtitle { font-size: 14px; color: #888; margin-bottom: 40px; }
+
+  .mic-btn {
+    width: 160px; height: 160px;
+    border-radius: 50%;
+    border: none;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #fff;
+    font-size: 60px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 8px 32px rgba(102,126,234,0.4);
+    position: relative;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .mic-btn:active { transform: scale(1.05); }
+  .mic-btn.recording {
+    background: linear-gradient(135deg, #e74c3c, #c0392b);
+    box-shadow: 0 0 0 0 rgba(231,76,60,0.6);
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(231,76,60,0.6); }
+    50% { box-shadow: 0 0 0 30px rgba(231,76,60,0); }
+    100% { box-shadow: 0 0 0 0 rgba(231,76,60,0); }
+  }
+  .status {
+    margin-top: 30px;
+    font-size: 16px;
+    color: #aaa;
+    text-align: center;
+    min-height: 24px;
+    transition: color 0.3s;
+  }
+  .status.active { color: #667eea; }
+  .status.heard { color: #2ecc71; }
+
+  .hint {
+    margin-top: 40px;
+    font-size: 13px;
+    color: #555;
+    text-align: center;
+    line-height: 1.6;
+  }
+
+  .log {
+    margin-top: 20px;
+    padding: 12px 16px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 12px;
+    font-size: 13px;
+    color: #888;
+    max-width: 300px;
+    width: 100%;
+    min-height: 20px;
+    word-break: break-all;
+  }
+</style>
+</head>
+<body>
+  <h1>语音助手</h1>
+  <p class="subtitle" id="serverInfo">连接中...</p>
+
+  <button class="mic-btn" id="micBtn">🎤</button>
+  <p class="status" id="status">按住说话</p>
+  <div class="log" id="log"></div>
+  <p class="hint">按住🎤说话，松开后发送<br>Claude Code 处理后会语音回复</p>
+
+<script>
+const serverHost = window.location.hostname;
+const serverPort = window.location.port ? `:${window.location.port}` : ':8081';
+const serverBase = `http://${serverHost}${serverPort}`;
+
+document.getElementById('serverInfo').textContent = `${serverHost}${serverPort}`;
+
+const micBtn = document.getElementById('micBtn');
+const statusEl = document.getElementById('status');
+const logEl = document.getElementById('log');
+
+function log(msg) { logEl.textContent = msg; }
+
+let audioCtx = null;
+let mediaStream = null;
+let processor = null;
+let source = null;
+let recording = false;
+let pcmChunks = [];
+let sampleRate = 16000;
+
+// Get user media
+async function getMic() {
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return true;
+  } catch (e) {
+    statusEl.textContent = '❌ 麦克风访问被拒绝';
+    return false;
+  }
+}
+
+function startRecording() {
+  if (!audioCtx) return;
+  recording = true;
+  pcmChunks = [];
+  micBtn.classList.add('recording');
+  statusEl.textContent = '🎙️ 录音中...';
+  statusEl.className = 'status active';
+
+  source = audioCtx.createMediaStreamSource(mediaStream);
+  const targetSampleRate = 16000;
+
+  processor = audioCtx.createScriptProcessor(4096, 1, 1);
+  processor.onaudioprocess = (e) => {
+    if (!recording) return;
+    const input = e.inputBuffer.getChannelData(0);
+    // Downsample to 16kHz
+    if (audioCtx.sampleRate !== targetSampleRate) {
+      const ratio = audioCtx.sampleRate / targetSampleRate;
+      const len = Math.floor(input.length / ratio);
+      const downsampled = new Float32Array(len);
+      for (let i = 0; i < len; i++) {
+        downsampled[i] = input[Math.floor(i * ratio)];
+      }
+      pcmChunks.push(downsampled);
+    } else {
+      pcmChunks.push(new Float32Array(input));
+    }
+  };
+
+  source.connect(processor);
+  processor.connect(audioCtx.destination);
+}
+
+function stopRecording() {
+  recording = false;
+  micBtn.classList.remove('recording');
+  statusEl.textContent = '⏳ 发送中...';
+  statusEl.className = 'status';
+
+  if (processor) {
+    processor.disconnect();
+    processor = null;
+  }
+  if (source) {
+    source.disconnect();
+    source = null;
+  }
+
+  if (pcmChunks.length === 0) {
+    statusEl.textContent = '按住说话';
+    return;
+  }
+
+  sendAudio();
+}
+
+function float32ToInt16(float32) {
+  const len = float32.length;
+  const buf = new ArrayBuffer(len * 2);
+  const view = new DataView(buf);
+  for (let i = 0; i < len; i++) {
+    const s = Math.max(-1, Math.min(1, float32[i]));
+    view.setInt16(i * 2, Math.round(s * 32767), true);
+  }
+  return new Int16Array(buf);
+}
+
+function pcmToWav(int16Data, sr) {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sr * numChannels * bitsPerSample / 8;
+  const blockAlign = numChannels * bitsPerSample / 8;
+  const dataSize = int16Data.length * 2;
+  const headerSize = 44;
+  const totalSize = headerSize + dataSize;
+
+  const buf = new ArrayBuffer(totalSize);
+  const dv = new DataView(buf);
+
+  writeString(dv, 0, 'RIFF');
+  dv.setUint32(4, totalSize - 8, true);
+  writeString(dv, 8, 'WAVE');
+  writeString(dv, 12, 'fmt ');
+  dv.setUint32(16, 16, true);
+  dv.setUint16(20, 1, true);
+  dv.setUint16(22, numChannels, true);
+  dv.setUint32(24, sr, true);
+  dv.setUint32(28, byteRate, true);
+  dv.setUint16(32, blockAlign, true);
+  dv.setUint16(34, bitsPerSample, true);
+  writeString(dv, 36, 'data');
+  dv.setUint32(40, dataSize, true);
+
+  const pcmView = new Int16Array(buf, headerSize);
+  pcmView.set(int16Data);
+
+  return new Uint8Array(buf);
+}
+
+function writeString(dv, offset, str) {
+  for (let i = 0; i < str.length; i++) dv.setUint8(offset + i, str.charCodeAt(i));
+}
+
+async function sendAudio() {
+  try {
+    // Concatenate all PCM chunks
+    let totalLen = 0;
+    for (const c of pcmChunks) totalLen += c.length;
+    const combined = new Float32Array(totalLen);
+    let offset = 0;
+    for (const c of pcmChunks) {
+      combined.set(c, offset);
+      offset += c.length;
+    }
+    pcmChunks = [];
+
+    // Convert to WAV
+    const int16 = float32ToInt16(combined);
+    const wav = pcmToWav(int16, 16000);
+    const blob = new Blob([wav], { type: 'audio/wav' });
+
+    log(`发送 ${(blob.size / 1024).toFixed(0)}KB`);
+
+    const resp = await fetch(`${serverBase}/voice`, {
+      method: 'POST',
+      body: blob
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: resp.statusText }));
+      throw new Error(err.error || resp.statusText);
+    }
+
+    const respBlob = await resp.blob();
+    log(`收到回复 ${(respBlob.size / 1024).toFixed(0)}KB`);
+
+    statusEl.textContent = '🔊 播放中...';
+    statusEl.className = 'status active';
+
+    // Play response
+    const audioUrl = URL.createObjectURL(respBlob);
+    const audio = new Audio(audioUrl);
+    audio.onended = () => {
+      URL.revokeObjectURL(audioUrl);
+      statusEl.textContent = '按住说话';
+      statusEl.className = 'status';
+      log('');
+    };
+    audio.play().catch(e => {
+      statusEl.textContent = '点击屏幕再试';
+      log(`播放失败: ${e.message}`);
+    });
+
+  } catch (e) {
+    log(`错误: ${e.message}`);
+    statusEl.textContent = '按住说话';
+    statusEl.className = 'status';
+  }
+}
+
+// Touch/click handlers
+micBtn.addEventListener('mousedown', (e) => { e.preventDefault(); if (!recording) startRecording(); });
+micBtn.addEventListener('mouseup', (e) => { e.preventDefault(); if (recording) stopRecording(); });
+micBtn.addEventListener('mouseleave', (e) => { if (recording) stopRecording(); });
+
+micBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (!recording) startRecording(); });
+micBtn.addEventListener('touchend', (e) => { e.preventDefault(); if (recording) stopRecording(); });
+
+// Initialize
+(async () => {
+  const ok = await getMic();
+  if (ok) {
+    statusEl.textContent = '按住说话';
+    log('就绪');
+  }
+})();
+</script>
+</body>
+</html>
