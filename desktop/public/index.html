@@ -19,29 +19,22 @@
       </div>
     </div>
 
-    <!-- Camera -->
-    <div class="camera-section" id="cameraSection">
-      <video id="cameraPreview" autoplay playsinline muted></video>
-      <button class="camera-toggle" id="cameraToggle">📷</button>
-      <canvas id="cameraCanvas" style="display:none"></canvas>
-    </div>
-
-    <!-- Main button -->
-    <div class="button-section">
-      <div class="pulse-ring" id="pulseRing"></div>
-      <button class="mic-button" id="micButton" ontouchstart="">
-        <span class="mic-icon">🎤</span>
-      </button>
-      <p class="hint" id="hintText">按住说话，松开发送</p>
-    </div>
+    <!-- Conversation (main area) -->
+    <div class="conversation" id="conversation"></div>
 
     <!-- Log -->
     <div class="log-box" id="logBox" style="display:none">
       <p class="log-text" id="logText"></p>
     </div>
 
-    <!-- Conversation -->
-    <div class="conversation" id="conversation"></div>
+    <!-- Mic button (bottom) -->
+    <div class="button-section">
+      <div class="pulse-ring" id="pulseRing"></div>
+      <button class="mic-button" id="micButton">
+        <span class="mic-icon">🎤</span>
+      </button>
+      <p class="hint" id="hintText">点击说话 / 空格键连续对话</p>
+    </div>
   </div>
 
   <script src="renderer.js"></script>
