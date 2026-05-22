@@ -34,7 +34,20 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => mainWindow.show());
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+  // Warm up Claude immediately — cold start takes ~10-20s, so start ASAP
+  require('../brain').warmup().then(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('warmup-ready');
+    }
+  }).catch(() => {
+    // Warmup failure is non-critical; first message will cold start
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('warmup-ready');
+    }
+  });
+});
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => {
   try { require('../brain').reset(); } catch {}
@@ -55,6 +68,18 @@ function loadModules() {
 
 // ─── Audio processing pipeline ──────────────────────────────
 
+function stripMarkdown(text) {
+  return text
+    .replace(/\*\*([^*]*?)\*\*/g, '$1')
+    .replace(/\*([^*]*?)\*/g, '$1')
+    .replace(/`([^`]*?)`/g, '$1')
+    .replace(/#{1,6}\s/g, '')
+    .replace(/^[-*+]\s/gm, '')
+    .replace(/^\d+\.\s/gm, '')
+    .replace(/^>\s/gm, '')
+    .trim();
+}
+
 async function processAudio(wavBuffer) {
   loadModules();
 
@@ -68,8 +93,8 @@ async function processAudio(wavBuffer) {
   // Step 2: Brain (Claude Code)
   const reply = await brain.think(text);
 
-  // Step 3: TTS
-  const resultWav = await tts.synthesize(reply);
+  // Step 3: TTS (strip markdown so asterisks etc aren't read aloud)
+  const resultWav = await tts.synthesize(stripMarkdown(reply));
 
   return { text, reply, wav: resultWav };
 }
@@ -101,7 +126,7 @@ ipcMain.handle('process-audio-with-image', async (_event, wavArrayBuffer, imageB
     const prompt = `用户说：${text}\n\n（用户还拍了一张照片，见附件 ${imagePath}）`;
 
     const reply = await brain.think(prompt);
-    const resultWav = await tts.synthesize(reply);
+    const resultWav = await tts.synthesize(stripMarkdown(reply));
     try { fs.unlinkSync(imagePath); } catch {}
 
     return { ok: true, text, reply, wavBase64: resultWav.toString('base64') };
@@ -114,4 +139,23 @@ ipcMain.handle('check-status', async () => {
   loadModules();
   const sttAvailable = stt.isAvailable ? stt.isAvailable() : true;
   return { stt: sttAvailable };
+});
+
+// ─── Text input processing ────────────────────────────────────
+
+ipcMain.handle('process-text', async (_event, text) => {
+  try {
+    loadModules();
+    if (!text || !text.trim()) return { ok: false, error: '输入不能为空' };
+    const reply = await brain.think(text);
+    const resultWav = await tts.synthesize(stripMarkdown(reply));
+    return {
+      ok: true,
+      text: text,
+      reply: reply,
+      wavBase64: resultWav.toString('base64'),
+    };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 });

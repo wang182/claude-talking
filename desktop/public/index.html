@@ -27,12 +27,23 @@
       <p class="log-text" id="logText"></p>
     </div>
 
-    <!-- Mic button (bottom) -->
-    <div class="button-section">
-      <div class="pulse-ring" id="pulseRing"></div>
-      <button class="mic-button" id="micButton">
-        <span class="mic-icon">🎤</span>
-      </button>
+    <!-- Input area (mic + text + send) -->
+    <div class="input-area">
+      <div class="input-row">
+        <div class="mic-wrapper">
+          <div class="pulse-ring" id="pulseRing"></div>
+          <button class="mic-button" id="micButton">
+            <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="2" width="6" height="11" rx="3" ry="3"/>
+              <path d="M5 10a7 7 0 0 0 14 0"/>
+              <line x1="12" y1="19" x2="12" y2="22"/>
+              <line x1="8" y1="22" x2="16" y2="22"/>
+            </svg>
+          </button>
+        </div>
+        <input type="text" class="text-input" id="textInput" placeholder="输入消息...">
+        <button class="send-button" id="sendButton">发送</button>
+      </div>
       <p class="hint" id="hintText">点击说话 / 空格键连续对话</p>
     </div>
   </div>

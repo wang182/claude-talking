@@ -6,6 +6,7 @@ let pcmChunks = [];
 let isRecording = false;
 let isProcessing = false;
 let pendingStart = false; // track async setup in progress
+let currentAudio = null;  // reference to active TTS Audio element
 let continuousMode = false;
 
 const TARGET_SAMPLE_RATE = 16000;
@@ -83,6 +84,7 @@ function downsample(samples, fromRate) {
 
 async function startRecording() {
   if (isRecording || isProcessing || pendingStart) return;
+  cancelPlayback(); // stop any ongoing TTS
   pendingStart = true;
 
   try {
@@ -223,35 +225,38 @@ async function processAudioData(rawSamples) {
 
     showLog(`识别: ${result.text}`);
     addMessage('user', result.text);
+    // processAudio handles STT→Claude→TTS atomically on the backend,
+    // so result is already complete — just show the reply directly
     addMessage('assistant', result.reply);
 
-    setStatus('busy', '🔊 播放中...');
+    // Unblock immediately so user can send next message while TTS plays
+    setStatus('ready', '就绪');
+    showLog('');
+    document.getElementById('hintText').textContent = continuousMode
+      ? '连续对话中，按 Esc 退出'
+      : '点击说话 / 空格键连续对话';
+    isProcessing = false;
 
-    // Play response (this can overlap with text display in continuous mode)
-    await playAudioBase64(result.wavBase64);
-
-    if (continuousMode) {
-      // Auto-continue: start next recording after short delay
-      setStatus('ready', '就绪');
-      showLog('');
-      document.getElementById('hintText').textContent = '连续对话中，按 Esc 退出';
-      setTimeout(() => {
-        if (continuousMode && !isRecording && !isProcessing) {
-          startRecording();
-        }
-      }, 600);
-    } else {
-      setStatus('ready', '就绪');
-      showLog('');
-      document.getElementById('hintText').textContent = '点击说话 / 空格键连续对话';
+    // Play TTS in background
+    if (result.wavBase64) {
+      setStatus('busy', '🔊 播放中...');
+      await playAudioBase64(result.wavBase64);
+      if (continuousMode) {
+        setTimeout(() => {
+          if (continuousMode && !isRecording && !isProcessing) {
+            startRecording();
+          }
+        }, 600);
+      }
     }
+
+    setStatus('ready', '就绪');
   } catch (err) {
     setStatus('error', err.message);
     showLog(err.message);
     document.getElementById('hintText').textContent = '点击说话';
+    isProcessing = false;
   }
-
-  isProcessing = false;
 }
 
 // ─── Audio Playback (MP3 via blob URL) ─────────────────────
@@ -265,13 +270,30 @@ async function playAudioBase64(base64) {
       const blob = new Blob([bytes], { type: 'audio/mpeg' });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
-      audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
-      audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
-      audio.play().catch(() => resolve());
+      currentAudio = audio;
+      const done = () => {
+        if (currentAudio === audio) currentAudio = null;
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      audio.onended = done;
+      audio.onerror = done;
+      audio.play().catch(done);
     } catch {
+      currentAudio = null;
       resolve();
     }
   });
+}
+
+function cancelPlayback() {
+  if (currentAudio) {
+    try {
+      currentAudio.pause();
+      currentAudio.src = '';
+    } catch {}
+    currentAudio = null;
+  }
 }
 
 // ─── UI ─────────────────────────────────────────────────────
@@ -302,9 +324,124 @@ function addMessage(role, text) {
   const container = document.getElementById('conversation');
   const msg = document.createElement('div');
   msg.className = `msg msg-${role}`;
-  msg.textContent = text;
+  if (role === 'assistant') {
+    msg.innerHTML = renderMarkdown(text);
+  } else {
+    msg.textContent = text;
+  }
   container.appendChild(msg);
   container.scrollTop = container.scrollHeight;
+}
+
+// ─── Markdown Renderer ────────────────────────────────────
+
+function renderMarkdown(text) {
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Protect code blocks from other transforms
+  const codeBlocks = [];
+  html = html.replace(/```[\s\S]*?```/g, (match) => {
+    codeBlocks.push(match);
+    return `\x00CODEBLOCK${codeBlocks.length - 1}\x00`;
+  });
+
+  // Inline code
+  html = html.replace(/`([^`]+?)`/g, '<code>$1</code>');
+
+  // Bold
+  html = html.replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>');
+
+  // Italic
+  html = html.replace(/\*([^*]+?)\*/g, (m, content) => {
+    if (content.trim() && !content.startsWith(' ')) {
+      return `<em>${content}</em>`;
+    }
+    return m;
+  });
+
+  // Restore code blocks with proper HTML
+  html = html.replace(/\x00CODEBLOCK(\d+)\x00/g, (_, idx) => {
+    let block = codeBlocks[parseInt(idx)];
+    block = block.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+      return `<pre><code>${code.trim()}</code></pre>`;
+    });
+    return block;
+  });
+
+  // Line breaks
+  html = html.replace(/\n/g, '<br>');
+
+  return html;
+}
+
+// ─── Thinking Indicator ───────────────────────────────────
+
+let thinkingEl = null;
+
+function showThinking() {
+  if (thinkingEl) return;
+  const container = document.getElementById('conversation');
+  thinkingEl = document.createElement('div');
+  thinkingEl.className = 'msg msg-thinking';
+  thinkingEl.id = 'thinkingIndicator';
+  thinkingEl.innerHTML = '🤔 思考中<span class="thinking-dots"><span></span><span></span><span></span></span>';
+  container.appendChild(thinkingEl);
+  container.scrollTop = container.scrollHeight;
+}
+
+function hideThinking() {
+  if (thinkingEl) {
+    thinkingEl.remove();
+    thinkingEl = null;
+  }
+}
+
+// ─── Text Input ────────────────────────────────────────────
+
+async function sendTextMessage() {
+  const input = document.getElementById('textInput');
+  const text = input.value.trim();
+  if (!text || isProcessing) return;
+
+  cancelPlayback(); // stop ongoing TTS
+  input.value = '';
+  isProcessing = true;
+  addMessage('user', text);
+  showThinking();
+
+  try {
+    const result = await window.api.processText(text);
+
+    hideThinking();
+    if (!result.ok) {
+      setStatus('error', `错误: ${result.error}`);
+      addMessage('assistant', `(错误: ${result.error})`);
+      isProcessing = false;
+      return;
+    }
+
+    addMessage('assistant', result.reply);
+    // Unblock immediately — user can send next message while TTS plays
+    isProcessing = false;
+    input.focus();
+
+    // Play TTS in background
+    if (result.wavBase64) {
+      setStatus('busy', '🔊 播放中...');
+      await playAudioBase64(result.wavBase64);
+      // Status update is proactive; the inner state is already ready
+    }
+
+    setStatus('ready', '就绪');
+  } catch (err) {
+    hideThinking();
+    setStatus('error', err.message);
+    addMessage('assistant', `(错误: ${err.message})`);
+    isProcessing = false;
+  }
 }
 
 // ─── Event Listeners (toggle mode) ──────────────────────────
@@ -349,6 +486,19 @@ micButton.addEventListener('touchstart', (e) => {
   startContinuousMode();
 });
 
+// Text input events
+const textInput = document.getElementById('textInput');
+const sendButton = document.getElementById('sendButton');
+
+textInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    sendTextMessage();
+  }
+});
+
+sendButton.addEventListener('click', sendTextMessage);
+
 // ─── Init ───────────────────────────────────────────────────
 
 (async function init() {
@@ -357,6 +507,17 @@ micButton.addEventListener('touchstart', (e) => {
     // Resume if suspended (autoplay policy)
     if (ctx.state === 'suspended') await ctx.resume();
   } catch {}
+
+  // Show warmup status — "就绪" only after Claude is actually ready
+  setStatus('busy', 'Claude 启动中...');
+
+  // Listen for warmup complete
+  window.api.onWarmupReady(() => {
+    // Only transition if still showing the warmup message
+    if (document.getElementById('statusText').textContent === 'Claude 启动中...') {
+      setStatus('ready', '就绪');
+    }
+  });
 
   // Pre-check status
   try {

@@ -18,14 +18,14 @@ const CLAUDE_PATH = findClaude();
 // ─── Conversation state ──────────────────────────────────────
 let isFirstMessage = true;
 
-const SYSTEM_PROMPT = `你现在通过语音与用户对话，全程使用简体中文。
+const SYSTEM_PROMPT = `你叫克劳德，你是老板的工作助手，老板是你的上级。全程使用简体中文。
 
 规则：
 - 用口语化的方式回复，像平时说话一样自然
 - 可以回复多段内容，但保持口语化，不要念书面语长句
 - 不要输出代码块、不要输出工具调用详情、不要输出Markdown格式
-- 如果用户要求查看或修改代码，你可以正常使用工具操作
-- 工具操作完后，用口语告诉用户结果即可`;
+- 如果老板要求查看或修改代码，你可以正常使用工具操作
+- 工具操作完后，用口语告诉老板结果即可`;
 
 /**
  * Build Claude Code CLI arguments
@@ -54,12 +54,39 @@ function buildPrompt(text) {
   return `用户说：${text}`;
 }
 
+// ─── Warmup ────────────────────────────────────────────────
+let warmupPromise = null;
+
+/**
+ * Start a Claude session in the background so the first real
+ * user message uses --continue and is much faster.
+ */
+async function warmup() {
+  if (warmupPromise) return warmupPromise;
+  warmupPromise = runClaude(`${SYSTEM_PROMPT}\n\n（初始化准备完毕）`)
+    .then(() => {
+      isFirstMessage = false;
+    })
+    .catch(err => {
+      console.error('[brain] warmup failed:', err.message);
+      isFirstMessage = true;
+      warmupPromise = null;
+    });
+  return warmupPromise;
+}
+
 /**
  * Process user input through Claude Code (one-shot --print with --continue)
  * @param {string} text - user's speech text
  * @returns {Promise<string>} Claude's response
  */
 async function think(text) {
+  // If warmup is still in progress, wait for it first
+  if (warmupPromise) {
+    await warmupPromise;
+    warmupPromise = null;
+  }
+
   const prompt = buildPrompt(text);
 
   try {
@@ -152,4 +179,4 @@ function historySize() {
   return isFirstMessage ? 0 : 1;
 }
 
-module.exports = { think, reset, historySize };
+module.exports = { think, reset, historySize, warmup };
