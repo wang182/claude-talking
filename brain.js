@@ -20,7 +20,7 @@ let history = [];
 const MAX_HISTORY = 20; // keep last 20 turns
 
 // System prompt for voice mode
-const SYSTEM_PROMPT = `你现在通过语音与用户对话。
+const SYSTEM_PROMPT = `你现在通过语音与用户对话，全程使用简体中文。
 
 规则：
 - 用口语化的方式回复，像平时说话一样自然

@@ -7,7 +7,7 @@
     "model": "/Users/wang/.whisper-models/ggml-base.bin"
   },
   "tts": {
-    "voice": "zh-CN-XiaoyiNeural",
+    "voice": "zh-CN-XiaoxiaoNeural",
     "rate": "+10%"
   },
   "claude": {
