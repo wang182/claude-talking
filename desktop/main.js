@@ -148,6 +148,10 @@ ipcMain.handle('process-audio', async (_event, wavArrayBuffer) => {
 ipcMain.handle('process-audio-with-image', async (_event, wavArrayBuffer, imageBase64) => {
   try {
     loadModules();
+    const model = getModelName();
+    if (!supportsVision(model)) {
+      return { ok: false, error: `当前模型 ${model} 不支持图片分析，请使用 Claude 系列模型` };
+    }
     const pcmData = Buffer.from(wavArrayBuffer).slice(44);
     const text = await stt.transcribe(pcmData);
     if (!text) throw new Error('语音识别失败');
@@ -173,19 +177,27 @@ ipcMain.handle('process-audio-with-image', async (_event, wavArrayBuffer, imageB
 ipcMain.handle('check-status', async () => {
   loadModules();
   const sttAvailable = stt.isAvailable ? stt.isAvailable() : true;
+  const model = getModelName();
+  return { stt: sttAvailable, model, vision: supportsVision(model) };
+});
 
-  // Read model from Claude Code settings
-  let model = '未知';
+// ─── Model detection & capability check ────────────────────
+
+function getModelName() {
   try {
     const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
     if (fs.existsSync(settingsPath)) {
       const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-      model = settings.env?.ANTHROPIC_MODEL || model;
+      return settings.env?.ANTHROPIC_MODEL || '未知';
     }
   } catch {}
+  return '未知';
+}
 
-  return { stt: sttAvailable, model };
-});
+function supportsVision(model) {
+  // Claude 3+ models all support vision. Only Claude models have vision.
+  return /^claude-/i.test(model);
+}
 
 // ─── Text input processing ────────────────────────────────────
 
@@ -209,6 +221,10 @@ ipcMain.handle('process-text', async (_event, text) => {
 ipcMain.handle('process-text-with-image', async (_event, text, imageBase64) => {
   try {
     loadModules();
+    const model = getModelName();
+    if (!supportsVision(model)) {
+      return { ok: false, error: `当前模型 ${model} 不支持图片分析，请使用 Claude 系列模型` };
+    }
     // Save image to temp and reference in the prompt
     const extMatch = imageBase64.match(/^data:image\/(\w+);base64,/);
     const ext = extMatch ? extMatch[1] : 'png';
