@@ -333,6 +333,8 @@ function addMessage(role, text) {
   msg.className = `msg msg-${role}`;
   if (role === 'assistant') {
     msg.innerHTML = renderMarkdown(text);
+  } else if (text.includes('<img') || text.includes('<svg')) {
+    msg.innerHTML = text;
   } else {
     msg.textContent = text;
   }

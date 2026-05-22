@@ -153,9 +153,12 @@ ipcMain.handle('process-audio-with-image', async (_event, wavArrayBuffer, imageB
     if (!text) throw new Error('语音识别失败');
 
     // Build prompt with image reference
-    const imagePath = path.join(app.getPath('temp'), `vision_${Date.now()}.jpg`);
-    fs.writeFileSync(imagePath, Buffer.from(imageBase64, 'base64'));
-    const prompt = `用户说：${text}\n\n（用户还拍了一张照片，见附件 ${imagePath}）`;
+    const extMatch = imageBase64.match(/^data:image\/(\w+);base64,/);
+    const ext = extMatch ? extMatch[1] : 'jpg';
+    const imagePath = path.join(app.getPath('temp'), `vision_${Date.now()}.${ext}`);
+    const raw = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    fs.writeFileSync(imagePath, Buffer.from(raw, 'base64'));
+    const prompt = `用户说：${text}\n\n用户还上传了一张图片，图片路径: ${imagePath}\n请读取这张图片查看内容，然后回复用户。`;
 
     const reply = await brain.think(prompt);
     const resultWav = await tts.synthesize(stripMarkdown(reply));
@@ -207,12 +210,14 @@ ipcMain.handle('process-text-with-image', async (_event, text, imageBase64) => {
   try {
     loadModules();
     // Save image to temp and reference in the prompt
-    const imagePath = path.join(app.getPath('temp'), `vision_${Date.now()}.jpg`);
+    const extMatch = imageBase64.match(/^data:image\/(\w+);base64,/);
+    const ext = extMatch ? extMatch[1] : 'png';
+    const imagePath = path.join(app.getPath('temp'), `vision_${Date.now()}.${ext}`);
     const raw = imageBase64.replace(/^data:image\/\w+;base64,/, '');
     fs.writeFileSync(imagePath, Buffer.from(raw, 'base64'));
     const prompt = text
-      ? `${text}\n\n（用户还上传了一张图片，见附件 ${imagePath}）`
-      : `用户上传了一张图片（见附件 ${imagePath}），请查看并回复`;
+      ? `${text}\n\n用户还上传了一张图片，图片路径: ${imagePath}\n请先读取这张图片查看内容，然后回复用户。`
+      : `用户上传了一张图片，图片路径: ${imagePath}\n请先读取这张图片查看内容，然后回复。`;
     const reply = await brain.think(prompt);
     const resultWav = await tts.synthesize(stripMarkdown(reply));
     try { fs.unlinkSync(imagePath); } catch {}
