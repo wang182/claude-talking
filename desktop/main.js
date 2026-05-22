@@ -3,9 +3,26 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
+// Resolve module paths for dev (__dirname/..) vs packaged (process.resourcesPath/lib)
+function libPath(mod) {
+  const dir = app.isPackaged
+    ? path.join(process.resourcesPath, 'lib')
+    : path.join(__dirname, '..');
+  return path.join(dir, mod);
+}
+
+function requireLib(mod) {
+  return require(libPath(mod));
+}
+
+// When packaged, add bundled node_modules to module resolution path
+if (app.isPackaged) {
+  module.paths.push(path.join(process.resourcesPath, 'lib', 'node_modules'));
+}
+
 // Validate critical modules exist before starting
 const checkPaths = [
-  '../stt', '../brain', '../tts', '../audio',
+  libPath('stt'), libPath('brain'), libPath('tts'), libPath('audio'),
   '/Users/wang/.whisper-models/ggml-base.bin',
 ];
 for (const p of checkPaths) {
@@ -38,7 +55,7 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
   // Warm up Claude immediately — cold start takes ~10-20s, so start ASAP
-  require('../brain').warmup().then(() => {
+  requireLib('brain').warmup().then(() => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('warmup-ready');
     }
@@ -51,18 +68,18 @@ app.whenReady().then(() => {
 });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => {
-  try { require('../brain').reset(); } catch {}
+  try { requireLib('brain').reset(); } catch {}
 });
 
 // ─── Load core modules lazily (after app starts) ─────────────
 let stt, brain, tts, audio;
 function loadModules() {
   if (!stt) {
-    stt = require('../stt');
-    brain = require('../brain');
-    tts = require('../tts');
-    audio = require('../audio');
-    const config = require('../config');
+    stt = requireLib('stt');
+    brain = requireLib('brain');
+    tts = requireLib('tts');
+    audio = requireLib('audio');
+    const config = requireLib('config');
     if (config.stt?.model) stt.setModel(config.stt.model);
   }
 }
