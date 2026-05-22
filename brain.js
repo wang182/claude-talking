@@ -15,11 +15,9 @@ function findClaude() {
 
 const CLAUDE_PATH = findClaude();
 
-// ─── Persistent Claude Code session (via PTY) ─────────────────
-let proc = null;
-let ready = false;
+// ─── Conversation state ──────────────────────────────────────
+let isFirstMessage = true;
 
-// System prompt
 const SYSTEM_PROMPT = `你现在通过语音与用户对话，全程使用简体中文。
 
 规则：
@@ -30,112 +28,98 @@ const SYSTEM_PROMPT = `你现在通过语音与用户对话，全程使用简体
 - 工具操作完后，用口语告诉用户结果即可`;
 
 /**
- * Spawn claude via `script` (PTY) so it stays in interactive mode
- * even though we're piping stdin/stdout.
+ * Build Claude Code CLI arguments
  */
-function startSession() {
-  return new Promise((resolve) => {
-    const args = [
-      '-q', '/dev/null',               // script flags: quiet, discard timing
-      CLAUDE_PATH,
-      '--add-dir', '/Users/wang',
-      '--add-dir', '/Users/wang/Desktop',
-      '--dangerously-skip-permissions',
-      '--effort', 'high',
-    ];
+function buildArgs() {
+  const args = [
+    '--print',
+    '--dangerously-skip-permissions',
+    '--effort', 'high',
+    '--add-dir', '/Users/wang',
+    '--add-dir', '/Users/wang/Desktop',
+  ];
+  if (!isFirstMessage) {
+    args.push('--continue');
+  }
+  return args;
+}
 
-    proc = spawn('script', args, {
+/**
+ * Build prompt text — include system prompt only on first message
+ */
+function buildPrompt(text) {
+  if (isFirstMessage) {
+    return `${SYSTEM_PROMPT}\n\n用户说：${text}`;
+  }
+  return `用户说：${text}`;
+}
+
+/**
+ * Process user input through Claude Code (one-shot --print with --continue)
+ * @param {string} text - user's speech text
+ * @returns {Promise<string>} Claude's response
+ */
+async function think(text) {
+  const prompt = buildPrompt(text);
+
+  try {
+    const response = await runClaude(prompt);
+    isFirstMessage = false;
+    return cleanResponse(response);
+  } catch (err) {
+    console.error('[brain] claude error:', err.message);
+    // If --continue fails (e.g. lost session), fall back to fresh session
+    if (!isFirstMessage) {
+      isFirstMessage = true;
+      try {
+        const prompt2 = `${SYSTEM_PROMPT}\n\n用户说：${text}`;
+        const response = await runClaude(prompt2);
+        isFirstMessage = false;
+        return cleanResponse(response);
+      } catch (err2) {
+        return `抱歉，我处理出错：${err2.message}`;
+      }
+    }
+    return `抱歉，我处理出错：${err.message}`;
+  }
+}
+
+/**
+ * Run claude --print with the given prompt
+ */
+function runClaude(prompt) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(CLAUDE_PATH, buildArgs(), {
       stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 120000,
       env: { ...process.env, CLAUDE_CODE_OUTPUT_MODE: 'plain' },
     });
 
-    // Log stderr for debugging
-    proc.stderr.on('data', (d) => process.stderr.write(`[brain:err] ${d}`));
-    proc.on('exit', () => { proc = null; ready = false; });
+    let output = '';
+    let error = '';
 
-    // Wait for first shell prompt, then send system prompt
-    waitForPrompt(() => {
-      proc.stdin.write(SYSTEM_PROMPT + '\n');
-      waitForPrompt(() => {
-        ready = true;
-        resolve();
-      });
+    child.stdout.on('data', (data) => {
+      output += data.toString();
     });
-  });
-}
 
-/**
- * Wait for the next shell prompt `> ` at end of PTY output
- */
-function waitForPrompt(callback) {
-  let acc = '';
-  const handler = (data) => {
-    acc += stripAnsi(data.toString());
-    if (isAtPrompt(acc)) {
-      proc.stdout.removeListener('data', handler);
-      callback();
-    }
-  };
-  proc.stdout.on('data', handler);
-}
+    child.stderr.on('data', (data) => {
+      error += data.toString();
+    });
 
-/**
- * Check if text ends at `> ` prompt
- */
-function isAtPrompt(text) {
-  const idx = text.lastIndexOf('\n');
-  if (idx === -1) return false;
-  return /^>\s*$/.test(text.slice(idx + 1));
-}
-
-/**
- * Strip ANSI escape codes from terminal output
- */
-function stripAnsi(text) {
-  return text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '')
-             .replace(/\x1B\][0-9;]*\x1B\\/g, '')
-             .replace(/\r/g, '');
-}
-
-/**
- * Ensure session is running
- */
-function ensureSession() {
-  if (proc && ready) return Promise.resolve();
-  return startSession();
-}
-
-/**
- * Process user input through the persistent Claude Code session.
- * @param {string} text - user's speech text
- * @returns {Promise<string>} Claude's spoken response
- */
-async function think(text) {
-  await ensureSession();
-  ready = false;
-
-  let response = '';
-
-  return new Promise((resolve) => {
-    const handler = (data) => {
-      response += stripAnsi(data.toString());
-      if (isAtPrompt(response)) {
-        proc.stdout.removeListener('data', handler);
-        ready = true;
-        const result = response.replace(/\n>\s*$/, '').trim();
-        resolve(cleanResponse(result));
+    child.on('close', (code) => {
+      if (code !== 0 && !output) {
+        reject(new Error(`claude exited with code ${code}: ${error}`));
+      } else {
+        resolve(output || error);
       }
-    };
+    });
 
-    proc.stdout.on('data', handler);
-    proc.stdin.write(text + '\n');
+    child.on('error', (err) => {
+      reject(new Error(`Failed to start claude: ${err.message}`));
+    });
 
-    setTimeout(() => {
-      proc.stdout.removeListener('data', handler);
-      ready = true;
-      const result = response.replace(/\n>\s*$/, '').trim();
-      resolve(cleanResponse(result) || '(timeout)');
-    }, 120000);
+    child.stdin.write(prompt);
+    child.stdin.end();
   });
 }
 
@@ -144,30 +128,28 @@ async function think(text) {
  */
 function cleanResponse(text) {
   return text
-    .replace(/^> .*(\n|$)/gm, '')         // input echo
-    .replace(/```[\s\S]*?```/g, '')       // code blocks
-    .replace(/`[^`]+`/g, '')              // inline code
-    .replace(/^[─┌└│├┤┬┴┼┐┘]+.*$/gm, '') // box-drawing chars
-    .replace(/^[>\s]*─+.*$/gm, '')        // lines with >
-    .replace(/^\d+[:.].*$/gm, '')         // numbered lines
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`[^`]+`/g, '')
+    .replace(/^[─┌└│├┤┬┴┼┼┐┘└┴┬├─┼│]+.*$/gm, '')
+    .replace(/^[>\s]*─+.*$/gm, '')
+    .replace(/^\d+[:.].*$/gm, '')
     .replace(/[\w./-]+\/\w+\.\w+/g, '某个文件')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
 /**
- * Reset — kill session
+ * Reset conversation — starts fresh session on next call
  */
 function reset() {
-  if (proc) {
-    try { proc.kill('SIGTERM'); } catch {}
-    proc = null;
-  }
-  ready = false;
+  isFirstMessage = true;
 }
 
+/**
+ * Get conversation state
+ */
 function historySize() {
-  return ready ? 1 : 0;
+  return isFirstMessage ? 0 : 1;
 }
 
 module.exports = { think, reset, historySize };
