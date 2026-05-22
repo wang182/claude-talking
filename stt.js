@@ -74,10 +74,26 @@ async function transcribe(pcm16) {
       });
     });
 
-    return result;
+    return toSimplified(result);
   } finally {
     try { fs.unlinkSync(tmpFile); } catch {}
     try { fs.unlinkSync(tmpFile + '.txt'); } catch {}
+  }
+}
+
+/**
+ * Convert Traditional Chinese to Simplified Chinese via opencc
+ */
+function toSimplified(text) {
+  try {
+    const result = require('child_process').execFileSync('opencc', ['-c', 't2s'], {
+      input: text,
+      encoding: 'utf8',
+      timeout: 5000,
+    }).trim();
+    return result || text;
+  } catch {
+    return text;
   }
 }
 
