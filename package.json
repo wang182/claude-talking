@@ -1,7 +1,7 @@
 {
-  "name": "xiaozhi-bridge",
+  "name": "claude-talking",
   "version": "1.0.0",
-  "description": "Bridge server for xiaozhi-esp32 + Claude Code voice interaction",
+  "description": "Desktop voice assistant for Claude Code - talk to Claude using mic, speaker, and camera. Also supports ESP32-S3 voice bridge.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
