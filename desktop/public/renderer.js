@@ -223,13 +223,12 @@ async function processAudioData(rawSamples) {
 
     showLog(`识别: ${result.text}`);
     addMessage('user', result.text);
+    addMessage('assistant', result.reply);
 
     setStatus('busy', '🔊 播放中...');
 
-    // Play response
+    // Play response (this can overlap with text display in continuous mode)
     await playAudioBase64(result.wavBase64);
-
-    addMessage('assistant', result.reply);
 
     if (continuousMode) {
       // Auto-continue: start next recording after short delay
