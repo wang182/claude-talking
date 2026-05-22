@@ -26,7 +26,7 @@ function createWindow() {
     },
     frame: true,
     backgroundColor: '#1a1a2e',
-    title: '小智桌面助手',
+    title: 'Claude桌面助手',
     show: false,
   });
 
