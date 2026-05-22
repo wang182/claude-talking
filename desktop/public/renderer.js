@@ -406,22 +406,94 @@ function hideThinking() {
   }
 }
 
+// ─── Image Attachment ──────────────────────────────────────
+
+let pendingImageBase64 = null;
+let pendingImageName = '';
+
+function setPendingImage(base64, name) {
+  pendingImageBase64 = base64;
+  pendingImageName = name;
+  const preview = document.getElementById('imagePreview');
+  const img = document.getElementById('previewImg');
+  img.src = base64;
+  preview.style.display = 'block';
+}
+
+function clearPendingImage() {
+  pendingImageBase64 = null;
+  pendingImageName = '';
+  const preview = document.getElementById('imagePreview');
+  preview.style.display = 'none';
+  document.getElementById('previewImg').src = '';
+}
+
+document.getElementById('imageBtn').addEventListener('click', () => {
+  document.getElementById('fileInput').click();
+});
+
+document.getElementById('fileInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    setPendingImage(ev.target.result, file.name);
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+});
+
+document.getElementById('removeImageBtn').addEventListener('click', clearPendingImage);
+
+// Support pasting images from clipboard
+document.getElementById('textInput').addEventListener('paste', (e) => {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault();
+      const blob = item.getAsFile();
+      if (!blob) continue;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setPendingImage(ev.target.result, 'clipboard.png');
+      };
+      reader.readAsDataURL(blob);
+      break;
+    }
+  }
+});
+
 // ─── Text Input ────────────────────────────────────────────
 
 async function sendTextMessage() {
   const input = document.getElementById('textInput');
   const text = input.value.trim();
-  if (!text || isProcessing) return;
+  const hasImage = !!pendingImageBase64;
+  if ((!text && !hasImage) || isProcessing) return;
 
   cancelPlayback(); // stop ongoing TTS
+
+  const imageBase64 = pendingImageBase64;
+  clearPendingImage();
+
   input.value = '';
   input.style.height = '36px';
   isProcessing = true;
-  addMessage('user', text);
+
+  // Show user message
+  if (hasImage) {
+    const img = `<img class="attached-image" src="${imageBase64}" alt="attached image">`;
+    addMessage('user', text ? text + img : img);
+  } else {
+    addMessage('user', text);
+  }
   showThinking();
 
   try {
-    const result = await window.api.processText(text);
+    const result = hasImage
+      ? await window.api.processTextWithImage(text, imageBase64)
+      : await window.api.processText(text);
 
     hideThinking();
     if (!result.ok) {

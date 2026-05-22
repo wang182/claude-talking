@@ -202,3 +202,27 @@ ipcMain.handle('process-text', async (_event, text) => {
     return { ok: false, error: err.message };
   }
 });
+
+ipcMain.handle('process-text-with-image', async (_event, text, imageBase64) => {
+  try {
+    loadModules();
+    // Save image to temp and reference in the prompt
+    const imagePath = path.join(app.getPath('temp'), `vision_${Date.now()}.jpg`);
+    const raw = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    fs.writeFileSync(imagePath, Buffer.from(raw, 'base64'));
+    const prompt = text
+      ? `${text}\n\n（用户还上传了一张图片，见附件 ${imagePath}）`
+      : `用户上传了一张图片（见附件 ${imagePath}），请查看并回复`;
+    const reply = await brain.think(prompt);
+    const resultWav = await tts.synthesize(stripMarkdown(reply));
+    try { fs.unlinkSync(imagePath); } catch {}
+    return {
+      ok: true,
+      text: text,
+      reply: reply,
+      wavBase64: resultWav.toString('base64'),
+    };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});

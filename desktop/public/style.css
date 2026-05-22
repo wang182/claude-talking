@@ -312,6 +312,83 @@ body {
 .send-button:hover { opacity: 0.85; }
 .send-button:active { transform: scale(0.96); }
 
+/* ─── Image Button ──────────────────────── */
+.image-btn {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #888;
+  padding: 5px;
+  border-radius: 50%;
+  transition: color 0.15s, background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-btn:hover {
+  color: #667eea;
+  background: rgba(102, 126, 234, 0.1);
+}
+
+.image-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* ─── Image Preview ─────────────────────── */
+.image-preview {
+  position: relative;
+  display: inline-block;
+  margin-bottom: 6px;
+  border-radius: 8px;
+  overflow: hidden;
+  align-self: flex-start;
+  max-width: 120px;
+}
+
+.image-preview img {
+  display: block;
+  max-width: 120px;
+  max-height: 120px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.remove-image {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.remove-image:hover {
+  background: rgba(231, 76, 60, 0.8);
+}
+
+/* ─── Image in conversation ─────────────── */
+.msg img.attached-image {
+  max-width: 200px;
+  max-height: 200px;
+  border-radius: 8px;
+  display: block;
+  margin-top: 4px;
+}
+
 .hint {
   font-size: 11px;
   color: #555;

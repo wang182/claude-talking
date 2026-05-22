@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('api', {
   processAudioWithImage: (wavArrayBuffer, imageBase64) =>
     ipcRenderer.invoke('process-audio-with-image', wavArrayBuffer, imageBase64),
   processText: (text) => ipcRenderer.invoke('process-text', text),
+  processTextWithImage: (text, imageBase64) => ipcRenderer.invoke('process-text-with-image', text, imageBase64),
   checkStatus: () => ipcRenderer.invoke('check-status'),
   onWarmupReady: (callback) => ipcRenderer.on('warmup-ready', () => callback()),
 });
