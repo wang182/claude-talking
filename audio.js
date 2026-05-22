@@ -1,16 +1,22 @@
-const { OpusEncoder } = require('@discordjs/opus');
+// Lazy-load @discordjs/opus — it's only needed for ESP32 bridge,
+// not for the desktop app (STT/TTS work without it)
+let _OpusEncoder = null;
+function getOpus() {
+  if (!_OpusEncoder) _OpusEncoder = require('@discordjs/opus').OpusEncoder;
+  return _OpusEncoder;
+}
 
 // Decoder for uplink: ESP32 → Server (16kHz, mono, 60ms frames)
 let decoder = null;
 function getDecoder() {
-  if (!decoder) decoder = new OpusEncoder(16000, 1, 60);
+  if (!decoder) decoder = new (getOpus())(16000, 1, 60);
   return decoder;
 }
 
 // Encoder for downlink: Server → ESP32 (24kHz, mono, 60ms frames)
 let encoder = null;
 function getEncoder() {
-  if (!encoder) encoder = new OpusEncoder(24000, 1, 60);
+  if (!encoder) encoder = new (getOpus())(24000, 1, 60);
   return encoder;
 }
 
