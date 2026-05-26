@@ -37,12 +37,9 @@ if (app.isPackaged) {
 // Validate critical modules exist before starting
 const checkPaths = [
   libPath('stt'), libPath('brain'), libPath('tts'),
-  path.join(os.homedir(), '.whisper-models', 'ggml-base.bin'),
 ];
 for (const p of checkPaths) {
-  if (p.endsWith('.bin')) {
-    if (!fs.existsSync(p)) console.warn(`[warn] STT model not found: ${p}`);
-  }
+  if (!fs.existsSync(p)) console.warn(`[warn] module not found: ${p}`);
 }
 
 let mainWindow;
@@ -68,6 +65,19 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
+
+  // Check if STT needs first-time setup (download whisper + model)
+  ensureSttSetup().then(setupDone => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('setup-done', setupDone);
+    }
+  }).catch(err => {
+    console.error('[setup] error:', err.message);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('setup-done', false);
+    }
+  });
+
   // Warm up Claude immediately — cold start takes ~10-20s, so start ASAP
   requireLib('brain').warmup().then(() => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -84,6 +94,44 @@ app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => {
   try { requireLib('brain').reset(); } catch {}
 });
+
+// ─── First-time setup (download whisper + model if needed) ──
+
+async function ensureSttSetup() {
+  try {
+    const stt = requireLib('stt');
+    const config = requireLib('config');
+
+    // Determine model path from config or fallback to default
+    const cfgModel = config.stt?.model;
+    const defaultModel = path.join(os.homedir(), '.whisper', 'ggml-small.bin');
+    const modelPath = cfgModel || defaultModel;
+
+    // If binary and model already exist, just set model and skip
+    if (stt.isAvailable && stt.isAvailable() && fs.existsSync(modelPath)) {
+      stt.setModel(modelPath);
+      return false;
+    }
+
+    // Show overlay and start download
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('setup-start');
+    }
+
+    await stt.ensureSetup((info) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('setup-progress', info);
+      }
+    });
+
+    // Point to the downloaded model
+    stt.setModel(fs.existsSync(cfgModel) ? cfgModel : defaultModel);
+    return true;
+  } catch (err) {
+    console.error('[setup] error:', err.message);
+    return false;
+  }
+}
 
 // ─── Load core modules lazily (after app starts) ─────────────
 let stt, brain, tts;

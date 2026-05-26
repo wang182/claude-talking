@@ -423,3 +423,55 @@ body {
   text-align: center;
   margin-top: 6px;
 }
+
+/* ─── Setup Overlay (first-launch download) ─── */
+.setup-overlay {
+  position: fixed;
+  inset: 0;
+  background: #1a1a2e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.setup-card {
+  text-align: center;
+  padding: 40px;
+}
+
+.setup-card h2 {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #eee;
+}
+
+.setup-desc {
+  font-size: 14px;
+  color: #888;
+  margin-bottom: 24px;
+}
+
+.setup-progress-bar {
+  width: 280px;
+  height: 6px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 0 auto 12px;
+}
+
+.setup-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.setup-percent {
+  font-size: 13px;
+  color: #667eea;
+  font-variant-numeric: tabular-nums;
+}

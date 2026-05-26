@@ -11,4 +11,7 @@ contextBridge.exposeInMainWorld('api', {
   synthesizeText: (text) => ipcRenderer.invoke('synthesize-text', text),
   checkStatus: () => ipcRenderer.invoke('check-status'),
   onWarmupReady: (callback) => ipcRenderer.on('warmup-ready', () => callback()),
+  onSetupProgress: (callback) => ipcRenderer.on('setup-progress', (_event, info) => callback(info)),
+  onSetupStart: (callback) => ipcRenderer.on('setup-start', () => callback()),
+  onSetupDone: (callback) => ipcRenderer.on('setup-done', (_event, ok) => callback(ok)),
 });

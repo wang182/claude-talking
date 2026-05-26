@@ -647,7 +647,27 @@ sendButton.addEventListener('click', sendTextMessage);
     }
   });
 
-  // Pre-check status and show model info
+  // Setup overlay — first-launch whisper download
+  window.api.onSetupStart(() => {
+    const overlay = document.getElementById('setupOverlay');
+    if (overlay) overlay.style.display = 'flex';
+  });
+
+  window.api.onSetupProgress((info) => {
+    const fill = document.getElementById('setupProgressFill');
+    const pct = document.getElementById('setupPercent');
+    const desc = document.getElementById('setupDesc');
+    if (fill) fill.style.width = `${info.percent}%`;
+    if (pct) pct.textContent = `${info.percent}%`;
+    if (desc) desc.textContent = info.label || '';
+  });
+
+  window.api.onSetupDone((ok) => {
+    const overlay = document.getElementById('setupOverlay');
+    if (overlay) overlay.style.display = 'none';
+  });
+
+  // Pre-check status
   try {
     const status = await window.api.checkStatus();
     if (!status.stt) {
