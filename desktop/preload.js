@@ -17,5 +17,5 @@ contextBridge.exposeInMainWorld('api', {
   getPrompt: () => ipcRenderer.invoke('get-prompt'),
   getDefaultPrompt: () => ipcRenderer.invoke('get-default-prompt'),
   setPrompt: (text) => ipcRenderer.invoke('set-prompt', text),
-  onWarmupStarted: (callback) => ipcRenderer.on('warmup-started', () => callback()),
+  startWarmup: () => ipcRenderer.invoke('start-warmup'),
 });

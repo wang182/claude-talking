@@ -6,15 +6,25 @@ const os = require('os');
 // When launched from Finder, PATH may not include user-installed binaries.
 // Extend PATH so child processes can find claude, whisper-cli etc.
 if (app.isPackaged) {
-  const extraPaths = [
-    path.join(os.homedir(), '.local', 'bin'),
-    '/opt/homebrew/bin',
-    '/usr/local/bin',
-    '/opt/homebrew/sbin',
-  ];
+  const home = os.homedir();
+  const extraPaths = [];
+  if (process.platform === 'darwin') {
+    extraPaths.push(
+      path.join(home, '.local', 'bin'),
+      '/opt/homebrew/bin',
+      '/usr/local/bin',
+      '/opt/homebrew/sbin',
+    );
+  } else if (process.platform === 'win32') {
+    extraPaths.push(
+      path.join(home, 'AppData', 'Local', 'Programs', 'Claude Code'),
+      path.join(home, '.local', 'bin'),
+    );
+  }
+  const separator = path.delimiter; // ':' on macOS, ';' on Windows
   const existing = process.env.PATH || '';
-  const added = extraPaths.filter(p => !existing.includes(p)).join(':');
-  if (added) process.env.PATH = `${added}:${existing}`;
+  const added = extraPaths.filter(p => !existing.includes(p)).join(separator);
+  if (added) process.env.PATH = `${added}${separator}${existing}`;
 }
 
 // Resolve module paths for dev (__dirname/..) vs packaged (process.resourcesPath/lib)
@@ -66,17 +76,27 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
 
-  const brain = requireLib('brain');
-  const sttMod = requireLib('stt');
+  // Pre-load modules so IPC handlers always have them ready.
+  // These assign to the outer let-stt/brain/tts (no const/let keyword).
+  stt = requireLib('stt');
+  brain = requireLib('brain');
+  tts = requireLib('tts');
   const config = requireLib('config');
-  if (config.stt?.model) sttMod.setModel(config.stt.model);
+  if (config.stt?.model) stt.setModel(config.stt.model);
 
   // Check if first launch (no saved prompt)
   const promptPath = path.join(os.homedir(), '.claude-talking', 'prompt.txt');
   const isFirstLaunch = !fs.existsSync(promptPath);
 
   if (isFirstLaunch) {
-    // First launch — show setup overlay, warmup later
+    // Send setup-start only after page is fully loaded (all handlers registered)
+    mainWindow.webContents.on('did-finish-load', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('setup-start');
+      }
+    });
+
+    // Start STT download immediately — progress/done sent via IPC
     ensureSttSetup().then(sttDone => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('setup-done', sttDone);
@@ -123,11 +143,7 @@ async function ensureSttSetup() {
       return false;
     }
 
-    // Show overlay and start download
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('setup-start');
-    }
-
+    // Progress/done sent via IPC as download proceeds
     await stt.ensureSetup((info) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('setup-progress', info);

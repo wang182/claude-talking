@@ -5,12 +5,20 @@ const os = require('os');
 
 // ─── Find Claude Code binary ──────────────────────────────────
 function findClaude() {
-  const candidates = ['claude', '~/.local/bin/claude'];
+  const isWin = process.platform === 'win32';
+  const whichCmd = isWin ? 'where' : 'which';
+
+  // On Windows, just try to resolve 'claude' via PATH
+  const candidates = ['claude'];
+  if (!isWin) {
+    candidates.push('~/.local/bin/claude');
+  }
+
   for (const cmd of candidates) {
     try {
-      const expanded = cmd.replace('~', process.env.HOME || '');
-      const which = require('child_process').execSync(`which ${expanded} 2>/dev/null || echo ""`, { encoding: 'utf8' }).trim();
-      if (which) return which;
+      const expanded = isWin ? cmd : cmd.replace('~', process.env.HOME || '');
+      const resolved = require('child_process').execSync(`${whichCmd} ${expanded} 2>/dev/null || echo ""`, { encoding: 'utf8' }).trim().split('\n')[0];
+      if (resolved) return resolved;
     } catch {}
   }
   return 'claude';
@@ -149,6 +157,7 @@ function runClaude(prompt) {
 
     let output = '';
     let error = '';
+    let resolved = false;
 
     child.stdout.on('data', (data) => {
       output += data.toString();
@@ -158,16 +167,31 @@ function runClaude(prompt) {
       error += data.toString();
     });
 
+    // Resolve as soon as stdout ends (Claude has written its response),
+    // without waiting for the process to fully exit.
+    child.stdout.on('end', () => {
+      if (!resolved) {
+        resolved = true;
+        resolve(output);
+      }
+    });
+
     child.on('close', (code) => {
-      if (code !== 0 && !output) {
-        reject(new Error(`claude exited with code ${code}: ${error}`));
-      } else {
-        resolve(output || error);
+      if (!resolved) {
+        resolved = true;
+        if (code === 0 || output) {
+          resolve(output || error || '');
+        } else {
+          reject(new Error(`claude exited with code ${code}: ${error}`));
+        }
       }
     });
 
     child.on('error', (err) => {
-      reject(new Error(`Failed to start claude: ${err.message}`));
+      if (!resolved) {
+        resolved = true;
+        reject(new Error(`Failed to start claude: ${err.message}`));
+      }
     });
 
     child.stdin.write(prompt);

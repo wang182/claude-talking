@@ -38,22 +38,19 @@ function findWhisper() {
   const binPath = getBinaryPath();
   if (fs.existsSync(binPath)) return binPath;
 
+  const isWin = process.platform === 'win32';
+  const whichCmd = isWin ? 'where' : 'which';
+
   const candidates = ['whisper-cli', 'whisper', 'whisper-cpp'];
-  const commonPaths = [
+  const commonPaths = isWin ? [] : [
     '/opt/homebrew/bin/whisper-cli',
     '/usr/local/bin/whisper-cli',
     '/usr/local/bin/whisper',
   ];
   for (const p of [...commonPaths, ...candidates]) {
     try {
-      const which = execFileSync('which', [p], { encoding: 'utf8' }).trim();
-      if (which) return which;
-    } catch {}
-  }
-  for (const cmd of candidates) {
-    try {
-      const result = require('child_process').execSync(`which ${cmd} 2>/dev/null`, { encoding: 'utf8' }).trim();
-      if (result) return result;
+      const found = execFileSync(whichCmd, [p], { encoding: 'utf8' }).trim().split('\n')[0];
+      if (found) return found;
     } catch {}
   }
   return null;

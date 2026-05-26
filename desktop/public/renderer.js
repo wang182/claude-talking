@@ -255,20 +255,20 @@ async function processAudioData(rawSamples) {
 
     // Step 4: TTS — synthesize and play in background
     if (ttsEnabled) {
-      const ttsResult = await window.api.synthesizeText(reply);
-      if (ttsResult.ok && ttsResult.wavBase64) {
-        await playAudioBase64(ttsResult.wavBase64);
-        if (continuousMode) {
-          setTimeout(() => {
-            if (continuousMode && !isRecording && !isProcessing) {
-              startRecording();
+      window.api.synthesizeText(reply).then(ttsResult => {
+        if (ttsResult.ok && ttsResult.wavBase64) {
+          playAudioBase64(ttsResult.wavBase64).then(() => {
+            if (continuousMode) {
+              setTimeout(() => {
+                if (continuousMode && !isRecording && !isProcessing) {
+                  startRecording();
+                }
+              }, 600);
             }
-          }, 600);
+          });
         }
-      }
+      });
     }
-
-    setStatus('ready', '就绪');
   } catch (err) {
     hideThinking();
     setStatus('error', err.message);
@@ -529,16 +529,16 @@ async function sendTextMessage() {
     addMessage('assistant', result.reply);
     isProcessing = false;
     input.focus();
-
-    // TTS in background
-    if (ttsEnabled) {
-      const ttsResult = await window.api.synthesizeText(result.reply);
-      if (ttsResult.ok && ttsResult.wavBase64) {
-        await playAudioBase64(ttsResult.wavBase64);
-      }
-    }
-
     setStatus('ready', '就绪');
+
+    // TTS in background — fire-and-forget so it doesn't block the UI
+    if (ttsEnabled) {
+      window.api.synthesizeText(result.reply).then(ttsResult => {
+        if (ttsResult.ok && ttsResult.wavBase64) {
+          playAudioBase64(ttsResult.wavBase64);
+        }
+      });
+    }
   } catch (err) {
     hideThinking();
     setStatus('error', err.message);
@@ -624,31 +624,8 @@ sendButton.addEventListener('click', sendTextMessage);
 // ─── Init ───────────────────────────────────────────────────
 
 (async function init() {
-  try {
-    const ctx = await getAudioContext();
-    // Resume if suspended (autoplay policy)
-    if (ctx.state === 'suspended') await ctx.resume();
-  } catch {}
-
-  // Show warmup status — "就绪" only after 阿玲 is actually ready
-  setStatus('busy', '启动中...');
-
-  // Listen for warmup complete
-  window.api.onWarmupReady(async () => {
-    if (document.getElementById('statusText').textContent === '启动中...') {
-      try {
-        const status = await window.api.checkStatus();
-        modelName = status.model ? `${status.model} (effort: high) |` : '';
-        setModelLabel(modelName);
-        setStatus('ready', '就绪');
-      } catch {
-        setStatus('ready', '就绪');
-      }
-    }
-  });
-
-  // ─── Setup overlay — first-launch (prompt editor + download) ──
-
+  // All IPC handlers registered synchronously before any await,
+  // so early messages (like setup-start) are never missed.
   let setupDownloadReady = false;
   let setupPromptReady = false;
 
@@ -660,6 +637,18 @@ sendButton.addEventListener('click', sendTextMessage);
       btn.textContent = '开始使用';
     }
   }
+
+  // Listen for warmup complete — always update model name and status
+  window.api.onWarmupReady(async () => {
+    try {
+      const status = await window.api.checkStatus();
+      modelName = status.model ? `${status.model} (effort: high) |` : '';
+      setModelLabel(modelName);
+    } catch {}
+    setStatus('ready', '就绪');
+  });
+
+  // ─── Setup overlay — first-launch (prompt editor + download) ──
 
   window.api.onSetupStart(async () => {
     const overlay = document.getElementById('setupOverlay');
@@ -677,16 +666,18 @@ sendButton.addEventListener('click', sendTextMessage);
   });
 
   window.api.onSetupProgress((info) => {
-    const fill = document.getElementById('setupProgressFill');
-    const pct = document.getElementById('setupPercent');
-    if (fill) fill.style.width = `${info.percent}%`;
-    if (pct) pct.textContent = `${info.stage === 'binary' ? '下载 Whisper 引擎...' : info.stage === 'model' ? '下载语音模型...' : info.label || ''} ${info.percent}%`;
+    const el = document.getElementById('setupStatus');
+    if (!el) return;
+    const label = info.stage === 'binary' ? '下载 Whisper 引擎...'
+      : info.stage === 'model' ? '下载语音模型 (ggml-small, ~450MB)...'
+      : info.label || '';
+    el.textContent = label;
   });
 
   window.api.onSetupDone((ok) => {
     setupDownloadReady = true;
-    const pct = document.getElementById('setupPercent');
-    if (pct) pct.textContent = '下载完成 ✓';
+    const el = document.getElementById('setupStatus');
+    if (el) el.textContent = '下载完成';
     checkSetupReady();
   });
 
@@ -735,14 +726,6 @@ sendButton.addEventListener('click', sendTextMessage);
     setTimeout(() => showLog(''), 2000);
   });
 
-  // Pre-check status
-  try {
-    const status = await window.api.checkStatus();
-    if (!status.stt) {
-      setStatus('error', 'STT 不可用');
-    }
-  } catch {}
-
   // Keyboard shortcuts
   document.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
@@ -762,4 +745,20 @@ sendButton.addEventListener('click', sendTextMessage);
       }
     }
   });
+
+  // ─── Async startup (safe to yield now — handlers are registered) ──
+  setStatus('busy', '启动中...');
+
+  try {
+    const ctx = await getAudioContext();
+    if (ctx.state === 'suspended') await ctx.resume();
+  } catch {}
+
+  // Pre-check status
+  try {
+    const status = await window.api.checkStatus();
+    if (!status.stt) {
+      setStatus('error', 'STT 不可用');
+    }
+  } catch {}
 })();

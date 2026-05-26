@@ -19,7 +19,7 @@ body {
 /* ─── Header ─────────────────────────────── */
 .header {
   text-align: center;
-  padding-top: 4px;
+  padding: 4px 76px 0 0;
   flex-shrink: 0;
   position: relative;
 }
@@ -429,36 +429,11 @@ body {
   text-align: left;
 }
 
-.setup-download-area {
+.setup-status {
   margin-top: 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.setup-download-area .setup-progress-bar {
-  flex: 1;
-  height: 4px;
-  background: rgba(255,255,255,0.1);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.setup-download-area .setup-progress-fill {
-  height: 100%;
-  width: 0%;
-  background: linear-gradient(90deg, #667eea, #764ba2);
-  border-radius: 2px;
-  transition: width 0.3s ease;
-}
-
-.setup-download-area .setup-percent {
-  font-size: 12px;
-  color: #667eea;
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-  min-width: 8ch;
-  text-align: right;
+  font-size: 13px;
+  color: #888;
+  text-align: left;
 }
 
 .setup-start-btn {
