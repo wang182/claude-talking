@@ -8,19 +8,15 @@ const audio = require('./audio');
 // ─── Install paths ──────────────────────────────────────────
 
 const INSTALL_DIR = path.join(os.homedir(), '.whisper');
-const WHISPER_VERSION = 'v1.7.4';
-
-function getPlatform() {
-  if (process.platform === 'darwin') {
-    return 'macos-' + (process.arch === 'arm64' ? 'arm64' : 'x64');
-  }
-  if (process.platform === 'win32') return 'windows-x64';
-  return 'linux-x64';
-}
+const WHISPER_VERSION = 'v1.8.4';
 
 function getBinaryName() {
-  const base = `whisper-cli-${getPlatform()}`;
-  return process.platform === 'win32' ? `${base}.exe` : base;
+  // macOS/Linux: direct binary; Windows: inside a ZIP
+  if (process.platform === 'darwin') {
+    return process.arch === 'arm64' ? 'whisper-cli-macos-arm64' : 'whisper-cli-macos-x64';
+  }
+  if (process.platform === 'win32') return 'whisper-bin-x64.zip';
+  return 'whisper-cli-linux-x64';
 }
 
 function getBinaryPath() {
@@ -94,18 +90,76 @@ function downloadUrl(url, dest, onProgress) {
   });
 }
 
+function downloadBuffer(url, onProgress) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { 'User-Agent': 'claude-talking/1.0' } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        downloadBuffer(res.headers.location, onProgress).then(resolve, reject);
+        return;
+      }
+      if (res.statusCode !== 200) {
+        reject(new Error(`HTTP ${res.statusCode}`));
+        return;
+      }
+      const chunks = [];
+      const total = parseInt(res.headers['content-length'], 10);
+      let downloaded = 0;
+      res.on('data', (chunk) => {
+        chunks.push(chunk);
+        downloaded += chunk.length;
+        if (total && onProgress) onProgress(Math.round(downloaded / total * 100));
+      });
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+    }).on('error', reject);
+  });
+}
+
 // ─── Setup (download binary + model if missing) ─────────────
 
 async function downloadBinary(onProgress) {
-  const url = `https://github.com/ggerganov/whisper.cpp/releases/download/${WHISPER_VERSION}/${getBinaryName()}`;
+  const isWin = process.platform === 'win32';
+  const binUrl = `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_VERSION}/${getBinaryName()}`;
   const dest = getBinaryPath();
 
   fs.mkdirSync(INSTALL_DIR, { recursive: true });
-  if (onProgress) onProgress(0);
-  await downloadUrl(url, dest, onProgress);
 
-  if (process.platform !== 'win32') fs.chmodSync(dest, 0o755);
-  whisperPath = dest;
+  if (isWin) {
+    // Windows: download ZIP into memory and extract whisper-cli.exe
+    if (onProgress) onProgress(0);
+    const zipBuf = await downloadBuffer(binUrl, (pct) => {
+      if (onProgress) onProgress(Math.round(pct * 0.7)); // 70% for download
+    });
+    // Extract ZIP to temp dir, find whisper-cli.exe, copy to install dir
+    const tmpDir = path.join(os.tmpdir(), `whisper_extract_${Date.now()}`);
+    const tmpZip = tmpDir + '.zip';
+    fs.mkdirSync(tmpDir, { recursive: true });
+    fs.writeFileSync(tmpZip, zipBuf);
+    try {
+      execFileSync('powershell', [
+        '-NoProfile', '-Command',
+        `Expand-Archive -Path '${tmpZip}' -DestinationPath '${tmpDir}' -Force`
+      ], { stdio: 'pipe' });
+      // Find whisper-cli.exe in extracted files
+      const files = fs.readdirSync(tmpDir, { recursive: true });
+      const exe = files.find(f => path.basename(f).toLowerCase() === 'whisper-cli.exe');
+      if (exe) {
+        fs.copyFileSync(path.join(tmpDir, exe), dest);
+        whisperPath = dest;
+      } else {
+        throw new Error('whisper-cli.exe not found in downloaded ZIP');
+      }
+    } finally {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      try { fs.unlinkSync(tmpZip); } catch {}
+    }
+    if (onProgress) onProgress(100);
+  } else {
+    // macOS/Linux: download binary directly
+    if (onProgress) onProgress(0);
+    await downloadUrl(binUrl, dest, onProgress);
+    fs.chmodSync(dest, 0o755);
+    whisperPath = dest;
+  }
 }
 
 async function downloadModel(onProgress) {
@@ -219,8 +273,9 @@ except Exception as e:
     print(f"ERROR: {e}", file=sys.stderr)
     sys.exit(1)
 `;
+    const pyCmd = process.platform === 'win32' ? 'python' : 'python3';
     const result = await new Promise((resolve, reject) => {
-      execFile('python3', ['-c', script], { timeout: 120000 }, (err, stdout, stderr) => {
+      execFile(pyCmd, ['-c', script], { timeout: 120000 }, (err, stdout, stderr) => {
         if (err) reject(new Error(`Python whisper failed: ${err.message}`));
         else resolve(stdout.trim());
       });
@@ -233,10 +288,13 @@ except Exception as e:
 
 function isAvailable() {
   if (whisperPath) return true;
-  try {
-    require('child_process').execSync('python3 -c "import whisper" 2>/dev/null', { stdio: 'ignore' });
-    return true;
-  } catch {}
+  const pythons = process.platform === 'win32' ? ['python', 'python3'] : ['python3'];
+  for (const py of pythons) {
+    try {
+      require('child_process').execSync(`${py} -c "import whisper" 2>/dev/null`, { stdio: 'ignore' });
+      return true;
+    } catch {}
+  }
   return false;
 }
 
