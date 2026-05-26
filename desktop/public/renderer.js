@@ -254,15 +254,17 @@ async function processAudioData(rawSamples) {
     isProcessing = false;
 
     // Step 4: TTS — synthesize and play in background
-    const ttsResult = await window.api.synthesizeText(reply);
-    if (ttsResult.ok && ttsResult.wavBase64) {
-      await playAudioBase64(ttsResult.wavBase64);
-      if (continuousMode) {
-        setTimeout(() => {
-          if (continuousMode && !isRecording && !isProcessing) {
-            startRecording();
-          }
-        }, 600);
+    if (ttsEnabled) {
+      const ttsResult = await window.api.synthesizeText(reply);
+      if (ttsResult.ok && ttsResult.wavBase64) {
+        await playAudioBase64(ttsResult.wavBase64);
+        if (continuousMode) {
+          setTimeout(() => {
+            if (continuousMode && !isRecording && !isProcessing) {
+              startRecording();
+            }
+          }, 600);
+        }
       }
     }
 
@@ -529,9 +531,11 @@ async function sendTextMessage() {
     input.focus();
 
     // TTS in background
-    const ttsResult = await window.api.synthesizeText(result.reply);
-    if (ttsResult.ok && ttsResult.wavBase64) {
-      await playAudioBase64(ttsResult.wavBase64);
+    if (ttsEnabled) {
+      const ttsResult = await window.api.synthesizeText(result.reply);
+      if (ttsResult.ok && ttsResult.wavBase64) {
+        await playAudioBase64(ttsResult.wavBase64);
+      }
     }
 
     setStatus('ready', '就绪');
@@ -572,6 +576,17 @@ function exitContinuousMode() {
 }
 
 micButton.addEventListener('click', toggleMic);
+
+// TTS toggle
+document.getElementById('ttsToggle').addEventListener('click', () => {
+  ttsEnabled = !ttsEnabled;
+  const btn = document.getElementById('ttsToggle');
+  btn.textContent = ttsEnabled ? '🔊' : '🔇';
+  btn.classList.toggle('muted', !ttsEnabled);
+  btn.title = ttsEnabled ? '语音播报开关' : '语音已关闭';
+  showLog(ttsEnabled ? '语音播报已开启' : '语音播报已关闭');
+  setTimeout(() => showLog(''), 1500);
+});
 
 // Right-click to cancel
 micButton.addEventListener('contextmenu', (e) => {
