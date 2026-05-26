@@ -21,6 +21,7 @@ body {
   text-align: center;
   padding-top: 4px;
   flex-shrink: 0;
+  position: relative;
 }
 
 .title {
@@ -29,6 +30,33 @@ body {
   color: #eee;
   margin-bottom: 4px;
 }
+
+.tts-toggle {
+  background: none;
+  border: 2px solid #555;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  font-size: 14px;
+  cursor: pointer;
+  color: #aaa;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  flex-shrink: 0;
+  position: absolute;
+  right: 16px;
+  top: 20px;
+}
+.tts-toggle:hover { border-color: #888; color: #eee; }
+.tts-toggle.muted {
+  border-color: #e74c3c;
+  color: #e74c3c;
+  opacity: 0.7;
+}
+.tts-toggle.muted:hover { opacity: 1; }
 
 .status-row {
   display: flex;

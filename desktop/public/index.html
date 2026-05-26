@@ -5,14 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self' blob:; connect-src 'self' blob:; img-src 'self' data:;">
-  <title>Claude桌面助手</title>
+  <title>Claude语音助手</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="container">
     <!-- Header -->
     <div class="header">
-      <h1 class="title">Claude桌面助手</h1>
+      <h1 class="title">Claude语音助手</h1>
+      <button class="tts-toggle" id="ttsToggle" title="语音播报开关">🔊</button>
       <div class="status-row">
         <span class="model-label" id="modelLabel"></span>
         <span class="dot" id="statusDot"></span>

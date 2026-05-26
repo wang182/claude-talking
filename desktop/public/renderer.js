@@ -8,6 +8,7 @@ let isProcessing = false;
 let pendingStart = false; // track async setup in progress
 let currentAudio = null;  // reference to active TTS Audio element
 let continuousMode = false;
+let ttsEnabled = true;
 
 const TARGET_SAMPLE_RATE = 16000;
 
@@ -208,26 +209,41 @@ async function processAudioData(rawSamples) {
     const ctx = audioCtx;
     const inputRate = ctx ? ctx.sampleRate : 48000;
     const downsampled = downsample(rawSamples, inputRate);
-
     const wavBuffer = encodeWAV(downsampled, TARGET_SAMPLE_RATE);
-    const logSize = (wavBuffer.byteLength / 1024).toFixed(0);
-    showLog(`发送 ${logSize}KB`);
 
-    const result = await window.api.processAudio(wavBuffer);
-
-    if (!result.ok) {
-      setStatus('error', `错误: ${result.error}`);
-      showLog(result.error);
+    // Step 1: STT — transcribe audio
+    showLog('识别中...');
+    const sttResult = await window.api.transcribeAudio(wavBuffer);
+    if (!sttResult.ok || !sttResult.text) {
+      setStatus('ready', '就绪');
+      showLog('');
       addMessage('user', '(语音输入失败)');
       isProcessing = false;
       return;
     }
 
-    showLog(`识别: ${result.text}`);
-    addMessage('user', result.text);
-    // processAudio handles STT→Claude→TTS atomically on the backend,
-    // so result is already complete — just show the reply directly
-    addMessage('assistant', result.reply);
+    const text = sttResult.text;
+    showLog(`识别: ${text}`);
+    addMessage('user', text);
+
+    // Step 2: Thinking — show indicator in conversation (same as text mode)
+    showThinking();
+    setStatus('busy', '思考中...');
+
+    // Step 3: Brain — get Claude's reply
+    const thinkResult = await window.api.thinkText(text);
+    hideThinking();
+
+    if (!thinkResult.ok || !thinkResult.reply) {
+      setStatus('ready', '就绪');
+      showLog('');
+      addMessage('assistant', `(错误: ${thinkResult.reply || '无回复'})`);
+      isProcessing = false;
+      return;
+    }
+
+    const reply = thinkResult.reply;
+    addMessage('assistant', reply);
 
     // Unblock immediately so user can send next message while TTS plays
     setStatus('ready', '就绪');
@@ -237,9 +253,10 @@ async function processAudioData(rawSamples) {
       : '点击说话 / 空格键连续对话';
     isProcessing = false;
 
-    // Play TTS in background
-    if (result.wavBase64) {
-      await playAudioBase64(result.wavBase64);
+    // Step 4: TTS — synthesize and play in background
+    const ttsResult = await window.api.synthesizeText(reply);
+    if (ttsResult.ok && ttsResult.wavBase64) {
+      await playAudioBase64(ttsResult.wavBase64);
       if (continuousMode) {
         setTimeout(() => {
           if (continuousMode && !isRecording && !isProcessing) {
@@ -251,6 +268,7 @@ async function processAudioData(rawSamples) {
 
     setStatus('ready', '就绪');
   } catch (err) {
+    hideThinking();
     setStatus('error', err.message);
     showLog(err.message);
     document.getElementById('hintText').textContent = '点击说话';
@@ -474,7 +492,7 @@ async function sendTextMessage() {
   const hasImage = !!pendingImageBase64;
   if ((!text && !hasImage) || isProcessing) return;
 
-  cancelPlayback(); // stop ongoing TTS
+  cancelPlayback();
 
   const imageBase64 = pendingImageBase64;
   clearPendingImage();
@@ -495,25 +513,25 @@ async function sendTextMessage() {
   try {
     const result = hasImage
       ? await window.api.processTextWithImage(text, imageBase64)
-      : await window.api.processText(text);
+      : await window.api.thinkText(text);
 
     hideThinking();
-    if (!result.ok) {
+    if (!result.ok || !result.reply) {
       setStatus('ready', '就绪');
-      addMessage('assistant', `(${result.error})`);
+      addMessage('assistant', `(${result.reply || result.error || '无回复'})`);
       isProcessing = false;
       input.focus();
       return;
     }
 
     addMessage('assistant', result.reply);
-    // Unblock immediately — user can send next message while TTS plays
     isProcessing = false;
     input.focus();
 
-    // Play TTS in background
-    if (result.wavBase64) {
-      await playAudioBase64(result.wavBase64);
+    // TTS in background
+    const ttsResult = await window.api.synthesizeText(result.reply);
+    if (ttsResult.ok && ttsResult.wavBase64) {
+      await playAudioBase64(ttsResult.wavBase64);
     }
 
     setStatus('ready', '就绪');
@@ -597,12 +615,12 @@ sendButton.addEventListener('click', sendTextMessage);
     if (ctx.state === 'suspended') await ctx.resume();
   } catch {}
 
-  // Show warmup status — "就绪" only after Claude is actually ready
-  setStatus('busy', 'Claude 启动中...');
+  // Show warmup status — "就绪" only after 阿玲 is actually ready
+  setStatus('busy', '启动中...');
 
   // Listen for warmup complete
   window.api.onWarmupReady(async () => {
-    if (document.getElementById('statusText').textContent === 'Claude 启动中...') {
+    if (document.getElementById('statusText').textContent === '启动中...') {
       try {
         const status = await window.api.checkStatus();
         modelName = status.model ? `${status.model} (effort: high) |` : '';

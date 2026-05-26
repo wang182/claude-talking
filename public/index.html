@@ -14,14 +14,57 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
     min-height: 100dvh;
     padding: 20px;
     user-select: none;
     -webkit-user-select: none;
   }
   h1 { font-size: 22px; font-weight: 500; margin-bottom: 8px; }
-  .subtitle { font-size: 14px; color: #888; margin-bottom: 40px; }
+  .subtitle { font-size: 14px; color: #888; margin-bottom: 24px; }
+
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    width: 100%;
+    max-width: 320px;
+  }
+  h1 { font-size: 22px; font-weight: 500; }
+
+  .tts-toggle {
+    background: none;
+    border: 2px solid #555;
+    border-radius: 50%;
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
+    cursor: pointer;
+    color: #aaa;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .tts-toggle:hover { border-color: #888; color: #eee; }
+  .tts-toggle.muted {
+    border-color: #e74c3c;
+    color: #e74c3c;
+    opacity: 0.7;
+  }
+  .tts-toggle.muted:hover { opacity: 1; }
+
+  .mic-area {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    min-height: 0;
+  }
 
   .mic-btn {
     width: 160px; height: 160px;
@@ -49,7 +92,7 @@
     100% { box-shadow: 0 0 0 0 rgba(231,76,60,0); }
   }
   .status {
-    margin-top: 30px;
+    margin-top: 24px;
     font-size: 16px;
     color: #aaa;
     text-align: center;
@@ -59,8 +102,27 @@
   .status.active { color: #667eea; }
   .status.heard { color: #2ecc71; }
 
+  .response-text {
+    margin-top: 16px;
+    padding: 14px 18px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 12px;
+    font-size: 14px;
+    color: #ccc;
+    max-width: 320px;
+    width: 100%;
+    min-height: 0;
+    max-height: 200px;
+    overflow-y: auto;
+    line-height: 1.6;
+    word-break: break-word;
+    display: none;
+    white-space: pre-wrap;
+  }
+  .response-text.visible { display: block; }
+
   .hint {
-    margin-top: 40px;
+    margin-top: 24px;
     font-size: 13px;
     color: #555;
     text-align: center;
@@ -68,13 +130,13 @@
   }
 
   .log {
-    margin-top: 20px;
-    padding: 12px 16px;
+    margin-top: 12px;
+    padding: 10px 14px;
     background: rgba(255,255,255,0.05);
     border-radius: 12px;
     font-size: 13px;
     color: #888;
-    max-width: 300px;
+    max-width: 320px;
     width: 100%;
     min-height: 20px;
     word-break: break-all;
@@ -82,13 +144,19 @@
 </style>
 </head>
 <body>
-  <h1>语音助手</h1>
+  <div class="header">
+    <h1>语音助手</h1>
+    <button class="tts-toggle" id="ttsToggle" title="语音播报开关">🔊</button>
+  </div>
   <p class="subtitle" id="serverInfo">连接中...</p>
 
-  <button class="mic-btn" id="micBtn">🎤</button>
-  <p class="status" id="status">按住说话</p>
-  <div class="log" id="log"></div>
-  <p class="hint">按住🎤说话，松开后发送<br>Claude Code 处理后会语音回复</p>
+  <div class="mic-area">
+    <button class="mic-btn" id="micBtn">🎤</button>
+    <p class="status" id="status">按住说话</p>
+    <div class="response-text" id="responseText"></div>
+    <div class="log" id="log"></div>
+    <p class="hint">按住🎤说话，松开后发送<br>Claude Code 处理后会语音回复</p>
+  </div>
 
 <script>
 const serverHost = window.location.hostname;
@@ -100,6 +168,22 @@ document.getElementById('serverInfo').textContent = `${serverHost}${serverPort}`
 const micBtn = document.getElementById('micBtn');
 const statusEl = document.getElementById('status');
 const logEl = document.getElementById('log');
+const ttsToggle = document.getElementById('ttsToggle');
+const responseText = document.getElementById('responseText');
+
+let ttsEnabled = true;
+
+ttsToggle.addEventListener('click', () => {
+  ttsEnabled = !ttsEnabled;
+  ttsToggle.textContent = ttsEnabled ? '🔊' : '🔇';
+  ttsToggle.classList.toggle('muted', !ttsEnabled);
+  ttsToggle.title = ttsEnabled ? '语音播报开关' : '语音已关闭';
+  log(ttsEnabled ? '语音播报已开启' : '语音播报已关闭');
+  if (ttsEnabled) {
+    responseText.classList.remove('visible');
+    responseText.textContent = '';
+  }
+});
 
 function log(msg) { logEl.textContent = msg; }
 
@@ -246,7 +330,8 @@ async function sendAudio() {
 
     log(`发送 ${(blob.size / 1024).toFixed(0)}KB`);
 
-    const resp = await fetch(`${serverBase}/voice`, {
+    const url = ttsEnabled ? `${serverBase}/voice` : `${serverBase}/voice?tts=0`;
+    const resp = await fetch(url, {
       method: 'POST',
       body: blob
     });
@@ -256,25 +341,33 @@ async function sendAudio() {
       throw new Error(err.error || resp.statusText);
     }
 
-    const respBlob = await resp.blob();
-    log(`收到回复 ${(respBlob.size / 1024).toFixed(0)}KB`);
+    if (ttsEnabled) {
+      const respBlob = await resp.blob();
+      log(`收到回复 ${(respBlob.size / 1024).toFixed(0)}KB`);
 
-    statusEl.textContent = '🔊 播放中...';
-    statusEl.className = 'status active';
+      statusEl.textContent = '🔊 播放中...';
+      statusEl.className = 'status active';
 
-    // Play response
-    const audioUrl = URL.createObjectURL(respBlob);
-    const audio = new Audio(audioUrl);
-    audio.onended = () => {
-      URL.revokeObjectURL(audioUrl);
+      const audioUrl = URL.createObjectURL(respBlob);
+      const audio = new Audio(audioUrl);
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        statusEl.textContent = '按住说话';
+        statusEl.className = 'status';
+        log('');
+      };
+      audio.play().catch(e => {
+        statusEl.textContent = '点击屏幕再试';
+        log(`播放失败: ${e.message}`);
+      });
+    } else {
+      const data = await resp.json();
+      log('收到文字回复');
+      responseText.textContent = data.text;
+      responseText.classList.add('visible');
       statusEl.textContent = '按住说话';
       statusEl.className = 'status';
-      log('');
-    };
-    audio.play().catch(e => {
-      statusEl.textContent = '点击屏幕再试';
-      log(`播放失败: ${e.message}`);
-    });
+    }
 
   } catch (e) {
     log(`错误: ${e.message}`);
