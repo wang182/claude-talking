@@ -647,31 +647,99 @@ sendButton.addEventListener('click', sendTextMessage);
     }
   });
 
-  // Setup overlay — first-launch whisper download
-  window.api.onSetupStart(() => {
+  // ─── Setup overlay — first-launch (prompt editor + download) ──
+
+  let setupDownloadReady = false;
+  let setupPromptReady = false;
+
+  function checkSetupReady() {
+    const btn = document.getElementById('setupStartBtn');
+    if (!btn) return;
+    if (setupDownloadReady && setupPromptReady) {
+      btn.disabled = false;
+      btn.textContent = '开始使用';
+    }
+  }
+
+  window.api.onSetupStart(async () => {
     const overlay = document.getElementById('setupOverlay');
-    if (overlay) overlay.style.display = 'flex';
+    if (!overlay) return;
+    overlay.style.display = 'flex';
+    setupDownloadReady = false;
+    setupPromptReady = false;
+
+    // Load default prompt into editor
+    const editor = document.getElementById('setupPromptEditor');
+    const defaultPrompt = await window.api.getDefaultPrompt();
+    editor.value = defaultPrompt;
+    setupPromptReady = true;
+    checkSetupReady();
   });
 
   window.api.onSetupProgress((info) => {
     const fill = document.getElementById('setupProgressFill');
     const pct = document.getElementById('setupPercent');
-    const desc = document.getElementById('setupDesc');
     if (fill) fill.style.width = `${info.percent}%`;
-    if (pct) pct.textContent = `${info.percent}%`;
-    if (desc) desc.textContent = info.label || '';
+    if (pct) pct.textContent = `${info.stage === 'binary' ? '下载 Whisper 引擎...' : info.stage === 'model' ? '下载语音模型...' : info.label || ''} ${info.percent}%`;
   });
 
   window.api.onSetupDone((ok) => {
-    const overlay = document.getElementById('setupOverlay');
-    if (overlay) overlay.style.display = 'none';
+    setupDownloadReady = true;
+    const pct = document.getElementById('setupPercent');
+    if (pct) pct.textContent = '下载完成 ✓';
+    checkSetupReady();
+  });
+
+  // Setup "开始使用" button
+  const startBtn = document.getElementById('setupStartBtn');
+  if (startBtn) {
+    startBtn.addEventListener('click', async () => {
+      const editor = document.getElementById('setupPromptEditor');
+      const text = editor.value.trim();
+      if (text) await window.api.setPrompt(text);
+
+      // Hide overlay, start warmup
+      const overlay = document.getElementById('setupOverlay');
+      if (overlay) overlay.style.display = 'none';
+      setStatus('busy', 'Claude 启动中...');
+      window.api.startWarmup();
+    });
+  }
+
+  // ─── Settings modal ─────────────────────────────────────────
+
+  document.getElementById('settingsBtn').addEventListener('click', async () => {
+    const editor = document.getElementById('settingsPromptEditor');
+    if (editor) editor.value = await window.api.getPrompt();
+    document.getElementById('settingsModal').style.display = 'flex';
+  });
+
+  document.getElementById('settingsClose').addEventListener('click', () => {
+    document.getElementById('settingsModal').style.display = 'none';
+  });
+
+  // Close modal on overlay click
+  document.getElementById('settingsModal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) {
+      document.getElementById('settingsModal').style.display = 'none';
+    }
+  });
+
+  document.getElementById('settingsSaveBtn').addEventListener('click', async () => {
+    const editor = document.getElementById('settingsPromptEditor');
+    const text = editor.value.trim();
+    if (!text) return;
+    await window.api.setPrompt(text);
+    document.getElementById('settingsModal').style.display = 'none';
+    showLog('AI 描述已更新，下次对话生效');
+    setTimeout(() => showLog(''), 2000);
   });
 
   // Pre-check status
   try {
     const status = await window.api.checkStatus();
     if (!status.stt) {
-      setStatus('error', 'STT 不可用，请安装 whisper.cpp');
+      setStatus('error', 'STT 不可用');
     }
   } catch {}
 

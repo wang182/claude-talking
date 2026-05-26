@@ -1,5 +1,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 
 // ─── Find Claude Code binary ──────────────────────────────────
 function findClaude() {
@@ -16,10 +18,13 @@ function findClaude() {
 
 const CLAUDE_PATH = findClaude();
 
-// ─── Conversation state ──────────────────────────────────────
-let isFirstMessage = true;
+// ─── Prompt storage ──────────────────────────────────────────
 
-const SYSTEM_PROMPT = `你叫小满，你是老板的AI智能助手，专门帮老板高效处理工作事务。全程使用简体中文。
+const PROMPT_DIR = path.join(os.homedir(), '.claude-talking');
+const PROMPT_PATH = path.join(PROMPT_DIR, 'prompt.txt');
+
+function getDefaultPrompt() {
+  return `你叫小满，你是老板的AI智能助手，专门帮老板高效处理工作事务。全程使用简体中文。
 
 你的风格：
 - 口语化、自然，像一个真正的同事在跟老板聊天
@@ -32,6 +37,24 @@ const SYSTEM_PROMPT = `你叫小满，你是老板的AI智能助手，专门帮�
 - 不要输出代码块、不要输出工具调用详情、不要输出Markdown格式
 - 如果老板要求查看或修改代码，正常使用工具操作
 - 工具操作完后，用口语告诉老板结果`;
+}
+
+function getPrompt() {
+  try {
+    return fs.readFileSync(PROMPT_PATH, 'utf8').trim();
+  } catch {
+    return getDefaultPrompt();
+  }
+}
+
+function setPrompt(text) {
+  fs.mkdirSync(PROMPT_DIR, { recursive: true });
+  fs.writeFileSync(PROMPT_PATH, text, 'utf8');
+  isFirstMessage = true; // reset session — next message uses new prompt
+}
+
+// ─── Conversation state ──────────────────────────────────────
+let isFirstMessage = true;
 
 /**
  * Build Claude Code CLI arguments
@@ -41,8 +64,6 @@ function buildArgs() {
     '--print',
     '--dangerously-skip-permissions',
     '--effort', 'high',
-    '--add-dir', process.env.HOME || '/Users/wang',
-    '--add-dir', path.join(process.env.HOME || '/Users/wang', 'Desktop'),
   ];
   if (!isFirstMessage) {
     args.push('--continue');
@@ -55,7 +76,7 @@ function buildArgs() {
  */
 function buildPrompt(text) {
   if (isFirstMessage) {
-    return `${SYSTEM_PROMPT}\n\n用户说：${text}`;
+    return `${getPrompt()}\n\n用户说：${text}`;
   }
   return `用户说：${text}`;
 }
@@ -69,7 +90,7 @@ let warmupPromise = null;
  */
 async function warmup() {
   if (warmupPromise) return warmupPromise;
-  warmupPromise = runClaude(`${SYSTEM_PROMPT}\n\n（初始化准备完毕）`)
+  warmupPromise = runClaude(`${getPrompt()}\n\n（初始化准备完毕）`)
     .then(() => {
       isFirstMessage = false;
     })
@@ -83,8 +104,6 @@ async function warmup() {
 
 /**
  * Process user input through Claude Code (one-shot --print with --continue)
- * @param {string} text - user's speech text
- * @returns {Promise<string>} Claude's response
  */
 async function think(text) {
   // If warmup is still in progress, wait for it first
@@ -105,7 +124,7 @@ async function think(text) {
     if (!isFirstMessage) {
       isFirstMessage = true;
       try {
-        const prompt2 = `${SYSTEM_PROMPT}\n\n用户说：${text}`;
+        const prompt2 = `${getPrompt()}\n\n用户说：${text}`;
         const response = await runClaude(prompt2);
         isFirstMessage = false;
         return cleanResponse(response);
@@ -178,11 +197,4 @@ function reset() {
   isFirstMessage = true;
 }
 
-/**
- * Get conversation state
- */
-function historySize() {
-  return isFirstMessage ? 0 : 1;
-}
-
-module.exports = { think, reset, historySize, warmup };
+module.exports = { think, reset, warmup, getPrompt, setPrompt, getDefaultPrompt };

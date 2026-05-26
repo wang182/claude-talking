@@ -14,4 +14,8 @@ contextBridge.exposeInMainWorld('api', {
   onSetupProgress: (callback) => ipcRenderer.on('setup-progress', (_event, info) => callback(info)),
   onSetupStart: (callback) => ipcRenderer.on('setup-start', () => callback()),
   onSetupDone: (callback) => ipcRenderer.on('setup-done', (_event, ok) => callback(ok)),
+  getPrompt: () => ipcRenderer.invoke('get-prompt'),
+  getDefaultPrompt: () => ipcRenderer.invoke('get-default-prompt'),
+  setPrompt: (text) => ipcRenderer.invoke('set-prompt', text),
+  onWarmupStarted: (callback) => ipcRenderer.on('warmup-started', () => callback()),
 });

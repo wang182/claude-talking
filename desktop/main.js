@@ -66,29 +66,39 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
 
-  // Check if STT needs first-time setup (download whisper + model)
-  ensureSttSetup().then(setupDone => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('setup-done', setupDone);
-    }
-  }).catch(err => {
-    console.error('[setup] error:', err.message);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('setup-done', false);
-    }
-  });
+  const brain = requireLib('brain');
+  const sttMod = requireLib('stt');
+  const config = requireLib('config');
+  if (config.stt?.model) sttMod.setModel(config.stt.model);
 
-  // Warm up Claude immediately — cold start takes ~10-20s, so start ASAP
-  requireLib('brain').warmup().then(() => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('warmup-ready');
-    }
-  }).catch(() => {
-    // Warmup failure is non-critical; first message will cold start
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('warmup-ready');
-    }
-  });
+  // Check if first launch (no saved prompt)
+  const promptPath = path.join(os.homedir(), '.claude-talking', 'prompt.txt');
+  const isFirstLaunch = !fs.existsSync(promptPath);
+
+  if (isFirstLaunch) {
+    // First launch — show setup overlay, warmup later
+    ensureSttSetup().then(sttDone => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('setup-done', sttDone);
+      }
+    }).catch(err => {
+      console.error('[setup] error:', err.message);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('setup-done', false);
+      }
+    });
+  } else {
+    // Normal start — warm up Claude immediately
+    brain.warmup().then(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('warmup-ready');
+      }
+    }).catch(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('warmup-ready');
+      }
+    });
+  }
 });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => {
@@ -239,6 +249,34 @@ ipcMain.handle('process-audio-with-image', async (_event, wavArrayBuffer, imageB
     return { ok: true, text, reply, wavBase64: resultWav.toString('base64') };
   } catch (err) {
     return { ok: false, error: err.message };
+  }
+});
+
+// ─── Prompt management ──────────────────────────────────────
+
+ipcMain.handle('get-prompt', () => {
+  return requireLib('brain').getPrompt();
+});
+
+ipcMain.handle('get-default-prompt', () => {
+  return requireLib('brain').getDefaultPrompt();
+});
+
+ipcMain.handle('set-prompt', async (_event, text) => {
+  requireLib('brain').setPrompt(text);
+  return true;
+});
+
+ipcMain.handle('start-warmup', async () => {
+  try {
+    await requireLib('brain').warmup();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('warmup-ready');
+    }
+  } catch {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('warmup-ready');
+    }
   }
 });
 

@@ -11,17 +11,37 @@
 <body>
   <div class="setup-overlay" id="setupOverlay" style="display:none">
     <div class="setup-card">
-      <h2>首次启动设置</h2>
-      <p class="setup-desc" id="setupDesc">正在下载 Whisper 引擎...</p>
-      <div class="setup-progress-bar"><div class="setup-progress-fill" id="setupProgressFill"></div></div>
-      <p class="setup-percent" id="setupPercent">0%</p>
+      <h2>欢迎！先描述你想要的 AI 助手</h2>
+      <p class="setup-desc">告诉她应该怎么称呼你、用什么风格交流 —— 之后随时可以修改</p>
+      <textarea class="prompt-editor" id="setupPromptEditor" placeholder="描述你想要的 AI 助手..." spellcheck="false"></textarea>
+      <div class="setup-download-area">
+        <div class="setup-progress-bar"><div class="setup-progress-fill" id="setupProgressFill"></div></div>
+        <p class="setup-percent" id="setupPercent">准备中...</p>
+      </div>
+      <button class="setup-start-btn" id="setupStartBtn" disabled>准备中...</button>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-overlay" id="settingsModal" style="display:none">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>AI 助手设置</h2>
+        <button class="modal-close" id="settingsClose">✕</button>
+      </div>
+      <p class="setup-desc">修改 AI 助手的身份和风格描述，下次对话生效</p>
+      <textarea class="prompt-editor" id="settingsPromptEditor" spellcheck="false"></textarea>
+      <button class="settings-save-btn" id="settingsSaveBtn">保存</button>
     </div>
   </div>
   <div class="container">
     <!-- Header -->
     <div class="header">
       <h1 class="title">Claude语音助手</h1>
-      <button class="tts-toggle" id="ttsToggle" title="语音播报开关">🔊</button>
+      <div class="header-buttons">
+        <button class="settings-btn" id="settingsBtn" title="设置 AI 描述">⚙️</button>
+        <button class="tts-toggle" id="ttsToggle" title="语音播报开关">🔊</button>
+      </div>
       <div class="status-row">
         <span class="model-label" id="modelLabel"></span>
         <span class="dot" id="statusDot"></span>

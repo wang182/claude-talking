@@ -31,33 +31,6 @@ body {
   margin-bottom: 4px;
 }
 
-.tts-toggle {
-  background: none;
-  border: 2px solid #555;
-  border-radius: 50%;
-  width: 30px;
-  height: 30px;
-  font-size: 14px;
-  cursor: pointer;
-  color: #aaa;
-  transition: all 0.2s ease;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-  flex-shrink: 0;
-  position: absolute;
-  right: 16px;
-  top: 20px;
-}
-.tts-toggle:hover { border-color: #888; color: #eee; }
-.tts-toggle.muted {
-  border-color: #e74c3c;
-  color: #e74c3c;
-  opacity: 0.7;
-}
-.tts-toggle.muted:hover { opacity: 1; }
-
 .status-row {
   display: flex;
   align-items: center;
@@ -424,7 +397,7 @@ body {
   margin-top: 6px;
 }
 
-/* ─── Setup Overlay (first-launch download) ─── */
+/* ─── Setup Overlay (first-launch: prompt editor + download) ─── */
 .setup-overlay {
   position: fixed;
   inset: 0;
@@ -436,42 +409,222 @@ body {
 }
 
 .setup-card {
-  text-align: center;
-  padding: 40px;
+  width: 420px;
+  max-width: 90vw;
+  padding: 32px 28px;
 }
 
 .setup-card h2 {
   font-size: 20px;
   font-weight: 600;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   color: #eee;
+  text-align: left;
 }
 
-.setup-desc {
-  font-size: 14px;
+.setup-card .setup-desc {
+  font-size: 13px;
   color: #888;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
+  text-align: left;
 }
 
-.setup-progress-bar {
-  width: 280px;
-  height: 6px;
+.setup-download-area {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.setup-download-area .setup-progress-bar {
+  flex: 1;
+  height: 4px;
   background: rgba(255,255,255,0.1);
-  border-radius: 3px;
+  border-radius: 2px;
   overflow: hidden;
-  margin: 0 auto 12px;
 }
 
-.setup-progress-fill {
+.setup-download-area .setup-progress-fill {
   height: 100%;
   width: 0%;
   background: linear-gradient(90deg, #667eea, #764ba2);
-  border-radius: 3px;
+  border-radius: 2px;
   transition: width 0.3s ease;
 }
 
-.setup-percent {
-  font-size: 13px;
+.setup-download-area .setup-percent {
+  font-size: 12px;
   color: #667eea;
+  flex-shrink: 0;
   font-variant-numeric: tabular-nums;
+  min-width: 8ch;
+  text-align: right;
+}
+
+.setup-start-btn {
+  display: block;
+  width: 100%;
+  margin-top: 20px;
+  padding: 10px;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+}
+.setup-start-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.setup-start-btn:not(:disabled):hover {
+  opacity: 0.85;
+}
+
+/* ─── Prompt Editor ───────────────────────── */
+.prompt-editor {
+  width: 100%;
+  min-height: 200px;
+  max-height: 320px;
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.06);
+  color: #ddd;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.6;
+  outline: none;
+  resize: vertical;
+  scrollbar-width: thin;
+}
+.prompt-editor:focus {
+  border-color: rgba(102, 126, 234, 0.5);
+}
+.prompt-editor::placeholder {
+  color: #555;
+}
+.prompt-editor::-webkit-scrollbar { width: 6px; }
+.prompt-editor::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+/* ─── Settings Modal ──────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9998;
+}
+
+.modal-card {
+  width: 420px;
+  max-width: 90vw;
+  background: #222244;
+  border-radius: 14px;
+  padding: 28px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.modal-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #eee;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+}
+.modal-close:hover {
+  color: #eee;
+  background: rgba(255,255,255,0.1);
+}
+
+.modal-card .setup-desc {
+  font-size: 13px;
+  color: #888;
+  margin-bottom: 14px;
+}
+
+.modal-card .prompt-editor {
+  min-height: 250px;
+  max-height: 400px;
+}
+
+.settings-save-btn {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  padding: 10px;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+  transition: opacity 0.2s;
+}
+.settings-save-btn:hover { opacity: 0.85; }
+
+/* ─── Header buttons ──────────────────────── */
+.header-buttons {
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.settings-btn {
+  background: none;
+  border: 2px solid #555;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  font-size: 15px;
+  cursor: pointer;
+  color: #aaa;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.settings-btn:hover { border-color: #888; color: #eee; }
+
+.tts-toggle {
+  background: none;
+  border: 2px solid #555;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  font-size: 14px;
+  cursor: pointer;
+  color: #aaa;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  flex-shrink: 0;
 }
