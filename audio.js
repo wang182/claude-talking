@@ -1,39 +1,3 @@
-// Lazy-load @discordjs/opus — it's only needed for ESP32 bridge,
-// not for the desktop app (STT/TTS work without it)
-let _OpusEncoder = null;
-function getOpus() {
-  if (!_OpusEncoder) _OpusEncoder = require('@discordjs/opus').OpusEncoder;
-  return _OpusEncoder;
-}
-
-// Decoder for uplink: ESP32 → Server (16kHz, mono, 60ms frames)
-let decoder = null;
-function getDecoder() {
-  if (!decoder) decoder = new (getOpus())(16000, 1, 60);
-  return decoder;
-}
-
-// Encoder for downlink: Server → ESP32 (24kHz, mono, 60ms frames)
-let encoder = null;
-function getEncoder() {
-  if (!encoder) encoder = new (getOpus())(24000, 1, 60);
-  return encoder;
-}
-
-/**
- * Decode one OPUS frame to 16-bit PCM buffer
- */
-function decodeOpusFrame(frame) {
-  return getDecoder().decode(frame, 960); // 60ms × 16kHz = 960 samples
-}
-
-/**
- * Encode 16-bit PCM buffer to OPUS frame
- */
-function encodeOpusFrame(pcm) {
-  return getEncoder().encode(pcm);
-}
-
 /**
  * Convert Float32 PCM array to 16-bit Int16 buffer
  */
@@ -59,13 +23,13 @@ function pcmToWav(pcm16, sampleRate = 16000) {
   header.write('WAVE', 8);
   // fmt chunk
   header.write('fmt ', 12);
-  header.writeUInt32LE(16, 16);        // chunk size
-  header.writeUInt16LE(1, 20);         // PCM format
-  header.writeUInt16LE(1, 22);         // mono
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
   header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(sampleRate * 2, 28); // byte rate
-  header.writeUInt16LE(2, 32);         // block align
-  header.writeUInt16LE(16, 34);        // bits per sample
+  header.writeUInt32LE(sampleRate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
   // data chunk
   header.write('data', 36);
   header.writeUInt32LE(dataLen, 40);
@@ -73,4 +37,4 @@ function pcmToWav(pcm16, sampleRate = 16000) {
   return Buffer.concat([header, pcm16]);
 }
 
-module.exports = { getDecoder, getEncoder, decodeOpusFrame, encodeOpusFrame, float32ToInt16, pcmToWav };
+module.exports = { float32ToInt16, pcmToWav };

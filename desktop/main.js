@@ -36,7 +36,7 @@ if (app.isPackaged) {
 
 // Validate critical modules exist before starting
 const checkPaths = [
-  libPath('stt'), libPath('brain'), libPath('tts'), libPath('audio'),
+  libPath('stt'), libPath('brain'), libPath('tts'),
   path.join(os.homedir(), '.whisper-models', 'ggml-base.bin'),
 ];
 for (const p of checkPaths) {
@@ -58,7 +58,7 @@ function createWindow() {
     },
     frame: true,
     backgroundColor: '#1a1a2e',
-    title: 'Claude桌面助手',
+    title: 'Claude语音助手',
     show: false,
   });
 
@@ -86,13 +86,12 @@ app.on('before-quit', () => {
 });
 
 // ─── Load core modules lazily (after app starts) ─────────────
-let stt, brain, tts, audio;
+let stt, brain, tts;
 function loadModules() {
   if (!stt) {
     stt = requireLib('stt');
     brain = requireLib('brain');
     tts = requireLib('tts');
-    audio = requireLib('audio');
     const config = requireLib('config');
     if (config.stt?.model) stt.setModel(config.stt.model);
   }
@@ -143,6 +142,27 @@ ipcMain.handle('process-audio', async (_event, wavArrayBuffer) => {
   } catch (err) {
     return { ok: false, error: err.message };
   }
+});
+
+// ─── Step-by-step handlers (for voice mode with thinking indicator) ───
+
+ipcMain.handle('transcribe-audio', async (_event, wavArrayBuffer) => {
+  loadModules();
+  const pcmData = Buffer.from(wavArrayBuffer).slice(44);
+  const text = await stt.transcribe(pcmData);
+  return { ok: true, text };
+});
+
+ipcMain.handle('think-text', async (_event, text) => {
+  loadModules();
+  const reply = await brain.think(text);
+  return { ok: true, reply };
+});
+
+ipcMain.handle('synthesize-text', async (_event, text) => {
+  loadModules();
+  const resultWav = await tts.synthesize(stripMarkdown(text));
+  return { ok: true, wavBase64: resultWav.toString('base64') };
 });
 
 ipcMain.handle('process-audio-with-image', async (_event, wavArrayBuffer, imageBase64) => {

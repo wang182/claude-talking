@@ -93,7 +93,6 @@ if command -v whisper &> /dev/null || command -v whisper-cli &> /dev/null; then
     cat > config.json << CONFIGEOF
 {
   "port": 8080,
-  "wssPort": 8080,
   "stt": {
     "engine": "whisper",
     "model": "${MODEL_FILE}"
@@ -143,8 +142,8 @@ echo ""
 echo "启动服务器:"
 echo "  cd $(pwd) && npm start"
 echo ""
-echo "然后在小智固件中配置 WebSocket 地址:"
-echo "  ws://你的Mac局域网IP:8080"
+echo "访问:"
+echo "  http://localhost:8080"
 echo "========================================"
 
 function build_whisper() {

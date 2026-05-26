@@ -1,18 +1,15 @@
-const { WebSocketServer } = require('ws');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execFile, spawn } = require('child_process');
-const audio = require('./audio');
+const { execFile } = require('child_process');
 const stt = require('./stt');
 const tts = require('./tts');
 const brain = require('./brain');
 const config = require('./config');
 
 const PORT = config.port || 8080;
-const WSS_PORT = config.wssPort || 8080;
 
 // Initialize modules from config
 if (config.stt && config.stt.model) {
@@ -31,23 +28,7 @@ if (config.claude) {
   console.log(`[init] Claude Code: ${require('child_process').execSync('which claude 2>/dev/null && claude --version 2>/dev/null || echo "not found"').toString().trim()}`);
 }
 
-// Collect OPUS frames during listen
-let currentSession = {
-  sessionId: null,
-  opusFrames: [],
-  isListening: false,
-  isProcessing: false,
-  deviceSocket: null,
-  state: 'idle', // idle | listening | processing | speaking
-};
-
-// ─── WebSocket Server ────────────────────────────────────────
-
-const wss = new WebSocketServer({ port: WSS_PORT });
-console.log(`[server] WebSocket server on ws://0.0.0.0:${WSS_PORT}`);
-
-// ─── HTTP server (OTA + voice endpoint + static files) ────
-const OTA_PORT = config.otaPort || 8081;
+// ─── HTTP server (voice endpoint + static files) ────────────
 
 function handleRequest(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -59,14 +40,22 @@ function handleRequest(req, res) {
 
   // ── POST /voice: accept WAV → STT → Claude → TTS → return WAV ──
   if (req.method === 'POST' && urlPath === '/voice') {
+    const query = req.url.split('?')[1] || '';
+    const params = new URLSearchParams(query);
+    const ttsEnabled = params.get('tts') !== '0';
     const chunks = [];
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', async () => {
       try {
         const wavData = Buffer.concat(chunks);
-        const resultWav = await handleVoiceRequest(wavData);
-        res.writeHead(200, { 'Content-Type': 'audio/wav' });
-        res.end(resultWav);
+        const result = await handleVoiceRequest(wavData, ttsEnabled);
+        if (ttsEnabled) {
+          res.writeHead(200, { 'Content-Type': 'audio/wav' });
+          res.end(result);
+        } else {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ text: result }));
+        }
       } catch (err) {
         console.error('[voice] error:', err.message);
         res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -92,44 +81,12 @@ function handleRequest(req, res) {
     return;
   }
 
-  // ── POST (OTA): return WebSocket config ──
-  let body = '';
-  req.on('data', chunk => body += chunk);
-  req.on('end', () => {
-    try {
-      const deviceId = req.headers['device-id'] || 'unknown';
-      const localIP = getLocalIPSync();
-      const response = {
-        websocket: {
-          uri: `ws://${localIP}:${WSS_PORT}`,
-          heartbeat_interval: 30000,
-          reconnect_interval: 5000,
-          reconnect_max_retries: -1
-        },
-        activation: {
-          code: "000000",
-          message: "已连接到本地桥接服务器",
-          timeout_ms: 60000
-        },
-        server_time: {
-          timestamp: Date.now() / 1000,
-          timezone_offset: new Date().getTimezoneOffset() * -1
-        }
-      };
-      console.log(`[ota] device=${deviceId} → ${localIP}:${WSS_PORT}`);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(response));
-    } catch (err) {
-      console.error(`[ota] error: ${err.message}`);
-      res.writeHead(500);
-      res.end(JSON.stringify({ error: err.message }));
-    }
-  });
+  res.writeHead(404); res.end();
 }
 
-const otaServer = http.createServer(handleRequest);
-otaServer.listen(OTA_PORT, () => {
-  console.log(`[ota] HTTP endpoint on http://0.0.0.0:${OTA_PORT}`);
+const httpServer = http.createServer(handleRequest);
+httpServer.listen(PORT, () => {
+  console.log(`[server] HTTP server on http://0.0.0.0:${PORT}`);
 });
 
 // ── HTTPS server (for Safari mic access) ──
@@ -147,290 +104,7 @@ try {
   console.log('[ssl] HTTPS disabled:', e.message);
 }
 
-function getLocalIPSync() {
-  try {
-    const ifaces = require('os').networkInterfaces();
-    for (const name of Object.keys(ifaces)) {
-      for (const iface of ifaces[name]) {
-        if (iface.family === 'IPv4' && !iface.internal && !name.startsWith('lo')) {
-          return iface.address;
-        }
-      }
-    }
-  } catch {}
-  return 'localhost';
-}
-
-wss.on('connection', (ws, req) => {
-  const clientId = req.headers['client-id'] || 'unknown';
-  const deviceId = req.headers['device-id'] || 'unknown';
-  console.log(`[server] device connected: ${deviceId}`);
-
-  let helloReceived = false;
-  let helloTimeout = null;
-
-  // Expect hello within 10s
-  helloTimeout = setTimeout(() => {
-    if (!helloReceived) {
-      console.log(`[server] hello timeout for ${deviceId}`);
-      ws.close();
-    }
-  }, 10000);
-
-  ws.on('message', async (data) => {
-    try {
-      if (data instanceof Buffer || data instanceof ArrayBuffer) {
-        await handleBinary(ws, Buffer.isBuffer(data) ? data : Buffer.from(data));
-      } else {
-        const msg = JSON.parse(data.toString());
-        handleJson(ws, msg);
-      }
-    } catch (err) {
-      console.error('[server] message error:', err.message);
-    }
-  });
-
-  ws.on('close', () => {
-    console.log(`[server] device disconnected: ${deviceId}`);
-    if (helloTimeout) clearTimeout(helloTimeout);
-    if (currentSession.deviceSocket === ws) {
-      currentSession.state = 'idle';
-      currentSession.isListening = false;
-      currentSession.isProcessing = false;
-    }
-  });
-
-  // ── JSON Handlers ────────────────
-
-  function handleJson(ws, msg) {
-    switch (msg.type) {
-      case 'hello':
-        helloReceived = true;
-        if (helloTimeout) clearTimeout(helloTimeout);
-
-        console.log(`[hello] device=${deviceId}, transport=${msg.transport}`);
-
-        // Respond with server hello
-        ws.send(JSON.stringify({
-          type: 'hello',
-          transport: 'websocket',
-          session_id: msg.session_id || generateId(),
-          audio_params: {
-            format: 'opus',
-            sample_rate: 24000,
-            channels: 1,
-            frame_duration: 60
-          }
-        }));
-
-        currentSession.deviceSocket = ws;
-        break;
-
-      case 'listen':
-        handleListen(ws, msg);
-        break;
-
-      case 'abort':
-        console.log(`[abort] reason: ${msg.reason}`);
-        currentSession.state = 'idle';
-        currentSession.isListening = false;
-        currentSession.isProcessing = false;
-        currentSession.opusFrames = [];
-        break;
-
-      case 'mcp':
-        // MCP device control response - log for now
-        console.log('[mcp] device response:', JSON.stringify(msg.payload));
-        break;
-
-      default:
-        console.log(`[server] unknown msg type: ${msg.type}`);
-    }
-  }
-
-  function handleListen(ws, msg) {
-    const { state, mode } = msg;
-    currentSession.sessionId = msg.session_id || currentSession.sessionId;
-
-    switch (state) {
-      case 'start':
-        console.log(`[listen] start (mode: ${mode})`);
-        currentSession.state = 'listening';
-        currentSession.isListening = true;
-        currentSession.opusFrames = [];
-        break;
-
-      case 'stop':
-        console.log(`[listen] stop — processing ${currentSession.opusFrames.length} frames`);
-        currentSession.isListening = false;
-        currentSession.state = 'processing';
-        processSpeech(ws, currentSession.opusFrames);
-        currentSession.opusFrames = [];
-        break;
-
-      case 'detect':
-        console.log(`[listen] wake word detected: ${msg.text || ''}`);
-        break;
-    }
-  }
-
-  async function handleBinary(ws, buf) {
-    if (currentSession.isListening) {
-      // Collect OPUS frames
-      currentSession.opusFrames.push(buf);
-    } else {
-      // May be early frames before listen:start — buffer or drop
-      if (currentSession.state === 'idle') {
-        currentSession.opusFrames.push(buf);
-      }
-    }
-  }
-});
-
-// ─── Speech Processing Pipeline ─────────────────────────────
-
-async function processSpeech(ws, opusFrames) {
-  if (opusFrames.length === 0) {
-    currentSession.state = 'idle';
-    return;
-  }
-
-  try {
-    // Step 1: Decode OPUS → PCM
-    const pcmChunks = [];
-    for (const frame of opusFrames) {
-      try {
-        const decoded = audio.decodeOpusFrame(frame);
-        pcmChunks.push(decoded);
-      } catch (err) {
-        console.error('[decode] bad frame:', err.message);
-      }
-    }
-
-    if (pcmChunks.length === 0) {
-      currentSession.state = 'idle';
-      return;
-    }
-
-    const pcm16 = Buffer.concat(pcmChunks);
-
-    // Step 2: STT
-    console.log('[stt] transcribing...');
-    let text;
-    try {
-      text = await stt.transcribe(pcm16);
-      console.log(`[stt] result: "${text}"`);
-    } catch (err) {
-      console.error('[stt] error:', err.message);
-      text = '';
-    }
-
-    if (!text) {
-      sendTTS(ws, '我没听清楚，能再说一遍吗？');
-      return;
-    }
-
-    // Send STT result to device for display
-    safeSend(ws, JSON.stringify({
-      session_id: currentSession.sessionId,
-      type: 'stt',
-      text
-    }));
-
-    // Step 3: Brain (Claude Code)
-    console.log('[brain] thinking...');
-    let reply;
-    try {
-      reply = await brain.think(text);
-    } catch (err) {
-      console.error('[brain] error:', err.message);
-      reply = '抱歉，我处理出错了。';
-    }
-
-    console.log(`[brain] reply: "${reply.slice(0, 100)}${reply.length > 100 ? '...' : ''}"`);
-
-    // Send emotion/expression to device
-    safeSend(ws, JSON.stringify({
-      session_id: currentSession.sessionId,
-      type: 'llm',
-      emotion: 'happy',
-      text: '😀'
-    }));
-
-    // Step 4: TTS
-    await sendTTS(ws, reply);
-
-  } catch (err) {
-    console.error('[process] pipeline error:', err.message);
-  } finally {
-    currentSession.state = 'idle';
-  }
-}
-
-async function sendTTS(ws, text) {
-  if (!text) return;
-
-  try {
-    // Signal TTS start
-    safeSend(ws, JSON.stringify({
-      session_id: currentSession.sessionId,
-      type: 'tts',
-      state: 'start'
-    }));
-
-    currentSession.state = 'speaking';
-
-    // Generate TTS audio (returns WAV buffer, 24kHz 16-bit mono)
-    const wavData = await tts.synthesize(text);
-
-    // Extract PCM (skip 44-byte WAV header)
-    const pcmData = wavData.slice(44);
-    const sampleRate = 24000;
-    const frameSize = Math.floor(sampleRate * 0.06);
-    const frameBytes = frameSize * 2;
-
-    // Encode and stream OPUS frames
-    const encoder = audio.getEncoder();
-    for (let offset = 0; offset < pcmData.length; offset += frameBytes) {
-      const chunk = pcmData.slice(offset, offset + frameBytes);
-      if (chunk.length < frameBytes) {
-        const padded = Buffer.alloc(frameBytes, 0);
-        chunk.copy(padded);
-        try { safeSend(ws, encoder.encode(padded)); } catch (e) {}
-        break;
-      }
-      try { safeSend(ws, encoder.encode(chunk)); } catch (e) {}
-    }
-
-    // Signal TTS stop
-    safeSend(ws, JSON.stringify({
-      session_id: currentSession.sessionId,
-      type: 'tts',
-      state: 'stop'
-    }));
-  } catch (err) {
-    console.error('[tts] error:', err.message);
-    safeSend(ws, JSON.stringify({
-      session_id: currentSession.sessionId,
-      type: 'tts',
-      state: 'stop'
-    }));
-  }
-}
-
-// ─── Helpers ────────────────────────────────────────────────
-
-function safeSend(ws, data) {
-  try {
-    if (ws.readyState === 1) ws.send(data);
-  } catch (e) {}
-}
-
-function generateId() {
-  return 'xxxx'.replace(/x/g, () => Math.random().toString(36).charAt(2));
-}
-
-// ─── Terminal text input (for testing without ESP32) ────────
+// ─── Terminal text input ────────────────────────────────────
 
 async function handleTextInput(text) {
   if (!text.trim()) return;
@@ -483,17 +157,14 @@ function startRepl() {
   return rl;
 }
 
-console.log('\n=== 小智桥接服务器 ===');
+console.log('\n=== Claude Talking 服务器 ===');
 console.log(`TTS 引擎: Edge TTS (${config.tts.voice || 'zh-CN-XiaoxiaoNeural'})`);
 console.log('');
 
 (async () => {
   const ip = await getLocalIP();
-  console.log(`📡 WebSocket 服务器: ws://${ip}:${WSS_PORT}`);
-  console.log(`🔗 OTA 端点: http://${ip}:${OTA_PORT}`);
-  console.log(`📱 Web 客户端: http://${ip}:${OTA_PORT}/`);
+  console.log(`📱 Web 客户端: http://${ip}:${PORT}/`);
   console.log(`📱 Web(HTTPS): https://${ip}:${SSL_PORT}/`);
-  console.log('📝 ESP32 固件改 CONFIG_OTA_URL 为此地址并重刷');
   console.log('📝 在终端输入文字即可对话 (输入 /help 查看命令)');
   console.log('');
   startRepl();
@@ -501,7 +172,7 @@ console.log('');
 
 // ─── HTTP Voice Request Handler ──────────────────────────
 
-async function handleVoiceRequest(wavData) {
+async function handleVoiceRequest(wavData, ttsEnabled = true) {
   // Extract PCM from WAV (skip 44-byte header)
   const pcmData = wavData.slice(44);
 
@@ -517,7 +188,12 @@ async function handleVoiceRequest(wavData) {
   const snippet = reply.slice(0, 100);
   console.log(`[voice] reply: "${snippet}${reply.length > 100 ? '...' : ''}"`);
 
-  // TTS
+  // TTS (skip if disabled)
+  if (!ttsEnabled) {
+    console.log('[voice] tts disabled, returning text');
+    return reply;
+  }
+
   console.log('[voice] synthesizing...');
   const resultWav = await tts.synthesize(reply);
 

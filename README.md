@@ -1,6 +1,6 @@
 # Claude Talking
 
-Voice assistant for [Claude Code](https://claude.ai) — talk to Claude using your microphone, listen to responses via TTS, and optionally connect over WebSocket from an ESP32-S3 device.
+Voice assistant for [Claude Code](https://claude.ai) — talk to Claude using your microphone and listen to responses via TTS.
 
 ## Features
 
@@ -11,7 +11,6 @@ Voice assistant for [Claude Code](https://claude.ai) — talk to Claude using yo
 - 🤔 **Thinking indicator** — visual feedback while Claude processes
 - 💻 **macOS Desktop app** — packaged with Electron for native experience
 - 🌐 **Web server** — browser-based interface on `localhost:8080`
-- 📡 **ESP32-S3 bridge** — real-time voice chat from IoT devices (WebSocket + OPUS)
 
 ## Architecture
 
@@ -80,7 +79,7 @@ The Claude model is read from `~/.claude/settings.json` (`env.ANTHROPIC_MODEL`).
 
 # Claude 语音助手
 
-[Claude Code](https://claude.ai) 的语音助手 — 用麦克风与 Claude 对话，或通过 WebSocket 从 ESP32-S3 设备连接。
+[Claude Code](https://claude.ai) 的语音助手 — 用麦克风与 Claude 对话。
 
 ## 功能
 
@@ -91,7 +90,6 @@ The Claude model is read from `~/.claude/settings.json` (`env.ANTHROPIC_MODEL`).
 - 🤔 **思考指示器** — Claude 处理时显示加载动画
 - 💻 **macOS 桌面应用** — Electron 打包，原生体验
 - 🌐 **Web 服务器** — 浏览器访问 `localhost:8080`
-- 📡 **ESP32-S3 桥接** — 物联网设备实时语音对话（WebSocket + OPUS）
 
 ## 架构
 

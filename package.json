@@ -1,7 +1,7 @@
 {
   "name": "claude-talking",
   "version": "1.0.0",
-  "description": "Desktop voice assistant for Claude Code - talk to Claude using mic, speaker, and camera. Also supports ESP32-S3 voice bridge.",
+  "description": "Desktop voice assistant for Claude Code - talk to Claude using mic, speaker, and camera.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -9,8 +9,6 @@
     "setup": "bash setup.sh"
   },
   "dependencies": {
-    "@discordjs/opus": "^0.10.0",
-    "node-edge-tts": "^1.2.10",
-    "ws": "^8.20.1"
+    "node-edge-tts": "^1.2.10"
   }
 }

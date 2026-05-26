@@ -13,7 +13,7 @@
   },
   "build": {
     "appId": "com.claude.talking",
-    "productName": "Claude桌面助手",
+    "productName": "Claude语音助手",
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
@@ -26,10 +26,10 @@
       }
     },
     "extraResources": [
+      { "from": "../audio.js", "to": "lib/audio.js" },
       { "from": "../brain.js", "to": "lib/brain.js" },
       { "from": "../stt.js", "to": "lib/stt.js" },
       { "from": "../tts.js", "to": "lib/tts.js" },
-      { "from": "../audio.js", "to": "lib/audio.js" },
       { "from": "../config.json", "to": "lib/config.json" },
       { "from": "../node_modules", "to": "lib/node_modules" }
     ],
