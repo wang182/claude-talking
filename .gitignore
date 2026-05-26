@@ -7,3 +7,4 @@ server.crt
 *.log
 desktop/out/
 desktop/dist/
+.idea/
